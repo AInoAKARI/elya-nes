@@ -1,0 +1,219 @@
+############################################################
+# seed token 1
+############################################################
+rows                         1408
+nnz                          52207
+weights                      102400
+stream_bytes                 57344
+header_bytes                 5656
+banks                        7
+bank_crossings_per_token     6
+tokens                       [1, 8, 6, 26, 5, 17, 8, 59, 3, 18, 27, 38, 36, 43, 18, 38, 14, 26, 51, 15]
+ntok                         19
+weights_npz                  runs/final_av2_bpe64_tau0.75.npz
+seed_tok                     1
+
+
+embed.bin  max|d| = 0   over 4096 values
+pos.bin    max|d| = 0   over 1280 values
+weights    102400   nonzero 52207   density 0.5098
+
+max|dW| = 0   over 102400 ternary weights -> EXACT
+
+-rw-rw-r-- 1 scott scott 90128 Aug  7 15:16 out/nn.nes
+-rw-rw-r-- 1 scott scott 90128 Aug  7 15:16 out/nnprof.nes
+status: OK
+marker events: 39
+
+ROM vs HOST, token by token
+  pos  rom      host     
+  0    8        8        ok
+  1    6        6        ok
+  2    26       26       ok
+  3    5        5        ok
+  4    17       17       ok
+  5    8        8        ok
+  6    59       59       ok
+  7    3        3        ok
+  8    18       18       ok
+  9    27       27       ok
+  10   38       38       ok
+  11   36       36       ok
+  12   43       43       ok
+  13   18       18       ok
+  14   38       38       ok
+  15   14       14       ok
+  16   26       26       ok
+  17   51       51       ok
+  18   15       15       ok
+
+TOKENS MATCHING: 19/19  -> EXACT
+
+CYCLES PER TOKEN (exact, from the write tap)
+  pos 0      1103615 cycles     0.6166 s @ 1789772 Hz
+  pos 1      1117330 cycles     0.6243 s @ 1789772 Hz
+  pos 2      1131282 cycles     0.6321 s @ 1789772 Hz
+  pos 3      1144785 cycles     0.6396 s @ 1789772 Hz
+  pos 4      1158523 cycles     0.6473 s @ 1789772 Hz
+  pos 5      1172526 cycles     0.6551 s @ 1789772 Hz
+  pos 6      1186008 cycles     0.6627 s @ 1789772 Hz
+  pos 7      1199907 cycles     0.6704 s @ 1789772 Hz
+  pos 8      1221404 cycles     0.6824 s @ 1789772 Hz
+  pos 9      1235285 cycles     0.6902 s @ 1789772 Hz
+  pos 10     1249083 cycles     0.6979 s @ 1789772 Hz
+  pos 11     1262247 cycles     0.7053 s @ 1789772 Hz
+  pos 12     1276389 cycles     0.7132 s @ 1789772 Hz
+  pos 13     1289825 cycles     0.7207 s @ 1789772 Hz
+  pos 14     1303844 cycles     0.7285 s @ 1789772 Hz
+  pos 15     1317637 cycles     0.7362 s @ 1789772 Hz
+  pos 16     1339283 cycles     0.7483 s @ 1789772 Hz
+  pos 17     1352987 cycles     0.7560 s @ 1789772 Hz
+  pos 18     1366939 cycles     0.7638 s @ 1789772 Hz
+  TOTAL     23428899 cycles    13.0904 s   (mean 1233099 cycles/token)
+
+############################################################
+# seed token 26
+############################################################
+rows                         1408
+nnz                          52207
+weights                      102400
+stream_bytes                 57344
+header_bytes                 5656
+banks                        7
+bank_crossings_per_token     6
+tokens                       [26, 2, 0, 12, 33, 19, 14, 26, 15, 11, 0, 24, 61, 26, 22, 54, 7, 26, 7, 8]
+ntok                         19
+weights_npz                  runs/final_av2_bpe64_tau0.75.npz
+seed_tok                     26
+
+
+embed.bin  max|d| = 0   over 4096 values
+pos.bin    max|d| = 0   over 1280 values
+weights    102400   nonzero 52207   density 0.5098
+
+max|dW| = 0   over 102400 ternary weights -> EXACT
+
+-rw-rw-r-- 1 scott scott 90128 Aug  7 15:16 out/nn.nes
+-rw-rw-r-- 1 scott scott 90128 Aug  7 15:16 out/nnprof.nes
+status: OK
+marker events: 39
+
+ROM vs HOST, token by token
+  pos  rom      host     
+  0    2        2        ok
+  1    0        0        ok
+  2    12       12       ok
+  3    33       33       ok
+  4    19       19       ok
+  5    14       14       ok
+  6    26       26       ok
+  7    15       15       ok
+  8    11       11       ok
+  9    0        0        ok
+  10   24       24       ok
+  11   61       61       ok
+  12   26       26       ok
+  13   22       22       ok
+  14   54       54       ok
+  15   7        7        ok
+  16   26       26       ok
+  17   7        7        ok
+  18   8        8        ok
+
+TOKENS MATCHING: 19/19  -> EXACT
+
+CYCLES PER TOKEN (exact, from the write tap)
+  pos 0      1103488 cycles     0.6166 s @ 1789772 Hz
+  pos 1      1117220 cycles     0.6242 s @ 1789772 Hz
+  pos 2      1131035 cycles     0.6319 s @ 1789772 Hz
+  pos 3      1144853 cycles     0.6397 s @ 1789772 Hz
+  pos 4      1158712 cycles     0.6474 s @ 1789772 Hz
+  pos 5      1172353 cycles     0.6550 s @ 1789772 Hz
+  pos 6      1186129 cycles     0.6627 s @ 1789772 Hz
+  pos 7      1199742 cycles     0.6703 s @ 1789772 Hz
+  pos 8      1221168 cycles     0.6823 s @ 1789772 Hz
+  pos 9      1234993 cycles     0.6900 s @ 1789772 Hz
+  pos 10     1248632 cycles     0.6976 s @ 1789772 Hz
+  pos 11     1262692 cycles     0.7055 s @ 1789772 Hz
+  pos 12     1276726 cycles     0.7133 s @ 1789772 Hz
+  pos 13     1290048 cycles     0.7208 s @ 1789772 Hz
+  pos 14     1303574 cycles     0.7283 s @ 1789772 Hz
+  pos 15     1317453 cycles     0.7361 s @ 1789772 Hz
+  pos 16     1339179 cycles     0.7482 s @ 1789772 Hz
+  pos 17     1353018 cycles     0.7560 s @ 1789772 Hz
+  pos 18     1366728 cycles     0.7636 s @ 1789772 Hz
+  TOTAL     23427743 cycles    13.0898 s   (mean 1233039 cycles/token)
+
+############################################################
+# seed token 40
+############################################################
+rows                         1408
+nnz                          52207
+weights                      102400
+stream_bytes                 57344
+header_bytes                 5656
+banks                        7
+bank_crossings_per_token     6
+tokens                       [40, 18, 19, 17, 4, 33, 19, 14, 26, 5, 17, 8, 59, 3, 18, 45, 36, 43, 18, 38]
+ntok                         19
+weights_npz                  runs/final_av2_bpe64_tau0.75.npz
+seed_tok                     40
+
+
+embed.bin  max|d| = 0   over 4096 values
+pos.bin    max|d| = 0   over 1280 values
+weights    102400   nonzero 52207   density 0.5098
+
+max|dW| = 0   over 102400 ternary weights -> EXACT
+
+-rw-rw-r-- 1 scott scott 90128 Aug  7 15:16 out/nn.nes
+-rw-rw-r-- 1 scott scott 90128 Aug  7 15:16 out/nnprof.nes
+status: OK
+marker events: 39
+
+ROM vs HOST, token by token
+  pos  rom      host     
+  0    18       18       ok
+  1    19       19       ok
+  2    17       17       ok
+  3    4        4        ok
+  4    33       33       ok
+  5    19       19       ok
+  6    14       14       ok
+  7    26       26       ok
+  8    5        5        ok
+  9    17       17       ok
+  10   8        8        ok
+  11   59       59       ok
+  12   3        3        ok
+  13   18       18       ok
+  14   45       45       ok
+  15   36       36       ok
+  16   43       43       ok
+  17   18       18       ok
+  18   38       38       ok
+
+TOKENS MATCHING: 19/19  -> EXACT
+
+CYCLES PER TOKEN (exact, from the write tap)
+  pos 0      1103632 cycles     0.6166 s @ 1789772 Hz
+  pos 1      1117195 cycles     0.6242 s @ 1789772 Hz
+  pos 2      1131072 cycles     0.6320 s @ 1789772 Hz
+  pos 3      1144680 cycles     0.6396 s @ 1789772 Hz
+  pos 4      1158571 cycles     0.6473 s @ 1789772 Hz
+  pos 5      1172469 cycles     0.6551 s @ 1789772 Hz
+  pos 6      1186147 cycles     0.6627 s @ 1789772 Hz
+  pos 7      1199930 cycles     0.6704 s @ 1789772 Hz
+  pos 8      1221325 cycles     0.6824 s @ 1789772 Hz
+  pos 9      1234919 cycles     0.6900 s @ 1789772 Hz
+  pos 10     1248719 cycles     0.6977 s @ 1789772 Hz
+  pos 11     1262348 cycles     0.7053 s @ 1789772 Hz
+  pos 12     1276188 cycles     0.7130 s @ 1789772 Hz
+  pos 13     1290197 cycles     0.7209 s @ 1789772 Hz
+  pos 14     1304206 cycles     0.7287 s @ 1789772 Hz
+  pos 15     1317339 cycles     0.7360 s @ 1789772 Hz
+  pos 16     1339110 cycles     0.7482 s @ 1789772 Hz
+  pos 17     1352815 cycles     0.7559 s @ 1789772 Hz
+  pos 18     1366972 cycles     0.7638 s @ 1789772 Hz
+  TOTAL     23427834 cycles    13.0898 s   (mean 1233043 cycles/token)
+
