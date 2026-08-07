@@ -519,3 +519,63 @@ longer index lists, longer lists mean more full 32-blocks rather than short
 tails, and every term in a sign-separated block has the same sign, so there is
 nothing to cancel. Block 16's worst observed value is 212 against the
 provable bound of 224 - close, and it is *provably* closed, which is the point.
+
+## Training table (12,000 steps each, identical shape, 102,400 weights)
+
+All arms are the same 102,400-weight model. Loss is cross entropy in nats.
+**Nats per token are not comparable across the two vocabularies** - a bpe64
+token is worth 1.454 characters and a charset token exactly one - so the
+column that decides anything is nats per **character**.
+
+| arm | vocab | quant | tau | fit | val | val/char | density | nnz | banks | fits 7? |
+|---|---|---|---|---|---|---|---|---|---|---|
+| bpe64_twn_tau1.00_q1 | bpe64 | float W | 1.00 | 2.2044 | 2.2075 | **1.5185** | 0.4256 | 43,583 | 6 | yes |
+| bpe64_twn_tau0.75_q2 | bpe64 | QAT | 0.75 | 2.2401 | 2.2435 | **1.5432** | 0.5441 | 55,711 | 7 | yes |
+| bpe64_bn_tau1.00_q2 | bpe64 | QAT | 1.00 | 2.2566 | 2.2586 | **1.5537** | 0.6738 | 69,002 | 9 | **NO** |
+| bpe64_twn_tau0.50_q2 | bpe64 | QAT | 0.50 | 2.2566 | 2.2586 | **1.5537** | 0.6738 | 69,002 | 9 | **NO** |
+| bpe64_twn_tau1.00_q2 | bpe64 | QAT | 1.00 | 2.2824 | 2.2874 | **1.5734** | 0.4137 | 42,360 | 6 | yes |
+| bpe64_twn_tau1.00_q2 (seed 2) | bpe64 | QAT | 1.00 | 2.2984 | 2.3008 | **1.5827** | 0.4148 | 42,475 | 6 | yes |
+| bpe64_twn_tau1.25_q2 | bpe64 | QAT | 1.25 | 2.3823 | 2.3855 | **1.6410** | 0.3080 | 31,538 | 4 | yes |
+| charset_twn_tau1.00_q2 | charset | QAT | 1.00 | 1.7041 | 1.6999 | **1.6999** | 0.4224 | 43,257 | 6 | yes |
+| bpe64_twn_tau1.50_q2 | bpe64 | QAT | 1.50 | 2.5246 | 2.5290 | **1.7396** | 0.2171 | 22,230 | 3 | yes |
+| bpe64_twn_tau1.00_q0 | bpe64 | fp32 | 1.00 | 2.6446 | 2.6472 | **1.8209** | 0.4249 | 43,506 | 6 | yes |
+
+uniform is ln(64) = 4.1589 nats/token, i.e. 2.861 nats/char on bpe64.
+
+Five things fall out of that table, three of them surprises.
+
+**1. BitNet b1.58 and TWN are the same arm.** `bn` at tau=1.00 and `twn` at
+tau=0.50 produced byte-identical results - same loss to four decimals, same
+69,002 nonzeros. That is not a coincidence and not a bug: BitNet's absmean
+rule keeps a weight when `|w| >= 0.5*tau*mean|w|` and TWN keeps it when
+`|w| > tau*mean|w|`, so `bn(tau) == twn(tau/2)` exactly. "BitNet vs TWN" is
+not a real experiment for a scale-free ternary kernel; it is the same map with
+the threshold reparametrised. Reported rather than quietly dropped.
+
+**2. tau has an interior optimum and it sits almost exactly on the ROM's
+capacity.** Density falls monotonically with tau (0.674 -> 0.217) but loss is
+U-shaped with a minimum at tau = 0.75, density 0.544. The 7-bank weight-stream
+window holds at most 57,232 index bytes = density 0.5589. The best arm needs
+55,711. It fits with 1,521 bytes to spare, which is luck, not design.
+
+**3. Ternarising the weights costs almost nothing here.** Float weights with
+everything else identical (`q1`) scored 1.5185 nats/char against QAT's 1.5734
+at the same tau - **0.055 nats/char, about 3.6%**. The weights are not the
+bottleneck; the 4-bit activations and the 20-token context are.
+
+**4. The fp32 control is WORSE than the quantised model** (1.8209 vs 1.5734).
+This model has no LayerNorm and no RMSNorm anywhere - the only thing holding
+the residual stream in range is the `clamp(-7, 7)` after each residual add.
+Remove it and the fixed requantise shifts become arbitrary rescalings of an
+unbounded stream. The 4-bit clamp is **load-bearing as the model's only
+normaliser**. (Fairness check: the control was rerun at two more learning
+rates before this claim was allowed to stand - see below.)
+
+**5. bpe64 beats plain characters by 0.157 nats/char**, 1.5432 vs 1.6999, i.e.
+9.2%. Spending the 31 otherwise-dead vocabulary slots on merges is worth it,
+and the reason is almost certainly the context: 20 bpe64 tokens is ~29
+characters, 20 charset tokens is 20.
+
+Seed noise: the same arm at seed 2 scored 1.5827 against seed 1's 1.5734, so
+**~0.009 nats/char**. The tau 0.75-vs-1.00 gap of 0.030 is about three times
+that, and the vocabulary gap of 0.157 is seventeen times it.
