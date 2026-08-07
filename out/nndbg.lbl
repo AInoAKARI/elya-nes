@@ -11,4 +11,4 @@ al 000100 .__ZP_SIZE__
 al 000000 .__ZP_START__
 al 000220 .res_ntok
 al 000200 .res_tokens
-al 00ECC3 .reset
+al 00EC60 .reset

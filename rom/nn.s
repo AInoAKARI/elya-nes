@@ -172,15 +172,23 @@ tbl_exp:    .incbin "out/model/tbl_exp.bin"
 ; ===========================================================================
 .segment "CHAINS"
 
+; Entry k reads stream offset (k - BLOCKSZ), so entering the chain at entry
+; (BLOCKSZ - r) covers exactly the FIRST r bytes of the list once X has been
+; pre-advanced to the offset one PAST the block.  Entering a chain of constant
+; offsets at the top would have covered the LAST r bytes instead - that was a
+; real bug, and it produced plausible-looking output that happened to give the
+; right token at positions 0 and 1.
 .macro GCHAIN pg
     .repeat BLOCKSZ, k
-    ldy $8000 + pg * 256 + k, x
+    ldy $8000 + pg * 256 + k - BLOCKSZ, x
     adc ACTB, y
     .endrepeat
     jmp (wfold)
 .endmacro
 
-.repeat 32, p
+; 33 chains: pages $80..$9F plus one for the position exactly one past the end
+; of the bank, which a list ending on the final byte legitimately addresses.
+.repeat 33, p
     .ident (.sprintf ("gchain%02d", p)):
     GCHAIN p
 .endrepeat
@@ -276,11 +284,80 @@ reset:
 @hang:
     jmp @hang
 
+.ifdef DEBUG
+; --- debug: snapshot XVEC for one chosen position into the unused tail of
+; --- the KV PRG-RAM bank.  Slot 0 = x after embed+pos, slots 1..3 = x after
+; --- layers 0..2.  Compared against host/ref.py's per-position trace.
+.ifndef DBGPOS
+DBGPOS = 2
+.endif
+dbg_lo: .byte $00, $40, $80, $C0
+dbg_hi: .byte $7E, $7E, $7E, $7E
+
+; snapshot the attention internals for DBGPOS / layer 0
+dbg_dump_attn:
+    lda curpos
+    cmp #DBGPOS
+    beq :+
+    rts
+:   lda curlay
+    beq :+
+    rts
+:   stx xsave
+    ldy #0
+@l:
+    lda ATTV,y
+    sta $7F00,y
+    lda Q4HI,y
+    sta $7F40,y
+    iny
+    cpy #64
+    bne @l
+    ldy #0
+@l2:
+    lda SCORL,y
+    sta $7F80,y
+    lda SCORH,y
+    sta $7FA0,y
+    lda P4HI,y
+    sta $7FC0,y
+    iny
+    cpy #20
+    bne @l2
+    ldx xsave
+    rts
+
+dbg_dump_x:                     ; A = slot
+    ldy curpos
+    cpy #DBGPOS
+    beq :+
+    rts
+:   stx xsave
+    tay
+    lda dbg_lo,y
+    sta sptr
+    lda dbg_hi,y
+    sta sptr+1
+    ldy #0
+@l:
+    lda XVEC,y
+    sta (sptr),y
+    iny
+    cpy #64
+    bne @l
+    ldx xsave
+    rts
+.endif
+
 ; ===========================================================================
 ; forward(): curtok, curpos -> curtok
 ; ===========================================================================
 forward:
     jsr embed_pos
+.ifdef DEBUG
+    lda #0
+    jsr dbg_dump_x
+.endif
 
     lda #0
     sta wbank
@@ -296,6 +373,12 @@ forward:
     sta curlay
 @layer:
     jsr do_layer
+.ifdef DEBUG
+    lda curlay
+    clc
+    adc #1
+    jsr dbg_dump_x
+.endif
     inc curlay
     lda curlay
     cmp #NLAYER
@@ -403,6 +486,9 @@ do_layer:
     jsr post_kv
 
     jsr attention
+.ifdef DEBUG
+    jsr dbg_dump_attn
+.endif
 
     lda #<ATTV
     sta sptr
@@ -527,8 +613,11 @@ gather:
     lda tbl_blkcnt,y
     sta blkcnt
     lda tbl_step,y
-    sta blkstep
+    sta blkstep             ; length of the FIRST (possibly partial) block
     lda tbl_entoff,y
+    sta t0                  ; (BLOCKSZ - step) * 6
+    jsr adv_x               ; X and wchain now point one PAST this block
+    lda t0
     clc
     adc wchain
     sta wep
@@ -548,9 +637,11 @@ fold_add:
     bcc @1
     inc totH
 @1:
-    jsr adv_x
-    lda blkcnt
+    dec blkcnt
     beq gather_done
+    lda #BLOCKSZ
+    sta blkstep
+    jsr adv_x
     lda #0
     clc
     jmp (wchain)
@@ -564,9 +655,11 @@ fold_sub:
     lda totH
     sbc #0
     sta totH
-    jsr adv_x
-    lda blkcnt
+    dec blkcnt
     beq gather_done
+    lda #BLOCKSZ
+    sta blkstep
+    jsr adv_x
     lda #0
     clc
     jmp (wchain)
@@ -576,6 +669,7 @@ fold_sub:
 gather_done:
     rts
 
+; advance X (and the chain, on an 8-bit wrap) by blkstep
 adv_x:
     txa
     clc
@@ -589,9 +683,6 @@ adv_x:
     bcc @nowrap
     inc wchain+1
 @nowrap:
-    lda #BLOCKSZ
-    sta blkstep
-    dec blkcnt
     rts
 
 ; ===========================================================================

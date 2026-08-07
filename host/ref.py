@@ -255,6 +255,7 @@ class Runner:
                 self.Vc[l][p][j] = nib(vv[j])
 
             att = [0] * D
+            dbg = {}
             for h in range(H):
                 base = h * DH
                 scores = []
@@ -264,6 +265,8 @@ class Runner:
                         s += MUL[(nib(q[base + j]) << 4) | self.K[l][t][base + j]]
                     scores.append(s - MUL_BIAS * DH)
                 pr = softmax_q(scores)
+                dbg["scores"] = list(scores)
+                dbg["p"] = list(pr)
                 for j in range(DH):
                     s = 0
                     for t in range(p + 1):
@@ -271,6 +274,11 @@ class Runner:
                     s -= MUL_BIAS * (p + 1)
                     att[base + j] = quant(s, AV_SHIFT)
 
+            if l == 0:
+                stage["att"] = list(att)
+                stage["q"] = list(q)
+                stage["scores"] = dbg["scores"]
+                stage["p"] = dbg["p"]
             o = matmul(self.split["L%d.Wo" % l], att, K_SHIFT)
             x = [clamp7(x[j] + o[j]) for j in range(D)]
             hdn = matmul(self.split["L%d.W1" % l], x, K_SHIFT, relu=True)
@@ -379,7 +387,8 @@ def main():
         json.dump({"info": info, "tokens": toks,
                    "trace": [{k: v for k, v in s.items()
                               if k in ("tok", "pos", "next", "x0",
-                                       "L0.x", "L1.x", "L2.x", "logits0_8")}
+                                       "L0.x", "L1.x", "L2.x", "logits0_8",
+                                       "att", "q", "scores", "p")}
                              for s in r.trace]}, f, indent=1)
     for k, v in info.items():
         print("%-28s %s" % (k, v))
