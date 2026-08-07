@@ -30,6 +30,13 @@ NFF      = 128
 NCTX     = 20
 NTOKGEN  = 19               ; >= 16, the verification bar
 
+; seed token: the ROM free-runs from a single token, so this is the whole
+; prompt.  Overridable from the build (-DSEEDTOK=nn) so the same weights can
+; be checked from several starting points rather than one lucky one.
+.ifndef SEEDTOK
+SEEDTOK  = 1
+.endif
+
 BIASV    = 7
 BLOCKSZ  = 16
 MULBIAS  = 13
@@ -275,7 +282,7 @@ reset:
     inx
     bne @clrkv
 
-    lda #1
+    lda #SEEDTOK
     sta curtok
     lda #0
     sta curpos

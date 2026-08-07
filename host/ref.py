@@ -179,6 +179,31 @@ class Model:
             })
         self.head = gen_ternary(rng, V, D)
 
+    @classmethod
+    def from_npz(cls, path):
+        """Load trained integer weights.  The npz is the SAME array the trainer
+        exported and the same one the max|dW| check reads, so the stream the
+        packer writes and the numbers the reference runs are provably one
+        quantisation, not two that happen to agree."""
+        import numpy as np
+        z = np.load(path)
+        m = cls.__new__(cls)
+        m.emb = [[int(v) for v in row] for row in z["emb"]]
+        m.pos = [[int(v) for v in row] for row in z["pos"]]
+        assert len(m.emb) == V and len(m.emb[0]) == D, (len(m.emb), len(m.emb[0]))
+        assert len(m.pos) == T and len(m.pos[0]) == D
+        m.layers = []
+        for l in range(L):
+            d = {}
+            for nm in ("Wq", "Wk", "Wv", "Wo", "W1", "W2"):
+                a = z["L%d_%s" % (l, nm)]
+                d[nm] = [[int(v) for v in row] for row in a]
+                assert set(v for row in d[nm] for v in row) <= {-1, 0, 1}
+            m.layers.append(d)
+        m.head = [[int(v) for v in row] for row in z["head"]]
+        assert len(m.head) == V and len(m.head[0]) == D
+        return m
+
     # -- the ordered list of matrices exactly as the stream stores them -----
     def matrices(self):
         out = []
@@ -390,12 +415,16 @@ def pack(model, outdir):
 def main():
     outdir = sys.argv[1] if len(sys.argv) > 1 else "out/model"
     ntok = int(sys.argv[2]) if len(sys.argv) > 2 else 19
+    npz = sys.argv[3] if len(sys.argv) > 3 else os.environ.get("NES_WEIGHTS")
+    seed_tok = int(os.environ.get("NES_SEED_TOK", "1"))
     os.makedirs(outdir, exist_ok=True)
-    m = Model()
+    m = Model.from_npz(npz) if npz else Model()
     info = pack(m, outdir)
-    toks, r = generate(m, 1, ntok)
+    toks, r = generate(m, seed_tok, ntok)
     info["tokens"] = toks
     info["ntok"] = ntok
+    info["weights_npz"] = npz or "(random init)"
+    info["seed_tok"] = seed_tok
     with open(os.path.join(outdir, "expected.json"), "w") as f:
         json.dump({"info": info, "tokens": toks,
                    "trace": [{k: v for k, v in s.items()
