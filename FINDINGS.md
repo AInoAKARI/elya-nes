@@ -405,3 +405,78 @@ contradiction of it.
   worth the risk, but that estimate is *not* a measurement.
 - **The `.sav` cross-check does not prove ares's cycle timing**, only that the
   ROM computes the same answer under a different CPU implementation.
+
+---
+
+# Training a real model (2026-08-07)
+
+The port was verified with randomly initialised weights: exactly correct,
+completely meaningless. This section is the attempt to give it something to
+say. Everything below is measured on this machine; predictions are labelled.
+
+## The 64-symbol charset
+
+`V = 64` is not a design knob - `rom/nn.s` declares `NVOCAB = 64` and the head
+is a 64x64 ternary matrix - and 64 symbols is short of printable ASCII, so the
+charset had to be chosen from the corpus rather than assumed.
+
+Measured character histogram of TinyStories-valid (19,432,979 bytes, 21,990
+stories), lowercased:
+
+| band | share |
+|---|---|
+| `a-z` + space | 91.0% cumulative by `k` (the 27th symbol) |
+| `.` `,` | 1.86% + 0.90% |
+| `"` `'` | 0.48% + 0.22% |
+| `!` `?` | 0.17% + 0.06% |
+| digits `0-9`, all ten | **0.0035%** |
+
+Digits are three parts in a hundred thousand. They were dropped, not encoded.
+That is the whole justification: at V=64 a slot spent on `7` is a slot not
+spent on a merge that fires every other token.
+
+**The charset, 33 symbols:**
+
+```
+abcdefghijklmnopqrstuvwxyz  space  .  ,  "  '  !  ?
+```
+
+Everything else is folded onto a symbol that preserves the *shape* of the
+text (newline/tab/dash/slash -> space, colon/semicolon -> comma, curly quotes
+-> straight quotes, ellipsis -> full stop, accented letters -> unaccented) or
+dropped (digits, `&#$()` and one emoji).
+
+**Coverage after mapping, over all 19,089,665 characters:**
+
+| | count | share |
+|---|---|---|
+| represented exactly | 18,986,555 | **99.4599%** |
+| folded onto a related symbol | 102,354 | 0.5362% |
+| dropped | 756 | **0.0040%** |
+| **coverage (exact + folded)** | | **99.9960%** |
+
+That leaves **31 of the 64 slots free**, which is 31 dead rows in the output
+head - 1,984 ternary weights, 1.9% of the model, doing nothing. So a second
+vocabulary was built on the same mapped text: the 33 base symbols plus **31
+greedy BPE merges**, filling all 64 slots.
+
+The 31 merges learned, in order:
+
+```
+'e ' ' t' 'd ' 'he ' ' a' ' s' 'he' ' the ' 't ' 'in' 'wa' 'nd ' '. ' 'y '
+' to' 's ' 'ou' 'on' 'ha' 'er' 'ed ' 'it' ' and ' 'ed' 'her' ', ' 'en' 'ar'
+'ing' ' to ' 'om'
+```
+
+They are worth **1.454 characters per token**, so at the fixed `T = 20` the
+model sees ~29 characters of context instead of 20. That matters more than it
+sounds: 20 characters is under four words.
+
+**Split**: 1,500 whole stories held out, 20,490 kept, chosen by story id, never
+by line. The sibling N64 run was bitten by a "validation" split that was a
+reshuffle of the fit lines, which makes val identical to fit by construction.
+
+| vocabulary | fit tokens | val tokens |
+|---|---|---|
+| charset (33 used of 64) | 17,798,157 | 1,290,667 |
+| bpe64 (64 used of 64) | 12,243,030 | 887,743 |
