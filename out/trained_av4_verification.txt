@@ -1,0 +1,30 @@
+  13   8        8        ok
+  14   17       17       ok
+  15   35       35       ok
+  16   0        0        ok
+  17   44       44       ok
+  18   18       18       ok
+
+TOKENS MATCHING: 19/19  -> EXACT
+
+CYCLES PER TOKEN (exact, from the write tap)
+  pos 0      1118741 cycles     0.6251 s @ 1789772 Hz
+  pos 1      1132444 cycles     0.6327 s @ 1789772 Hz
+  pos 2      1146354 cycles     0.6405 s @ 1789772 Hz
+  pos 3      1160172 cycles     0.6482 s @ 1789772 Hz
+  pos 4      1173857 cycles     0.6559 s @ 1789772 Hz
+  pos 5      1187516 cycles     0.6635 s @ 1789772 Hz
+  pos 6      1201153 cycles     0.6711 s @ 1789772 Hz
+  pos 7      1214671 cycles     0.6787 s @ 1789772 Hz
+  pos 8      1236177 cycles     0.6907 s @ 1789772 Hz
+  pos 9      1250051 cycles     0.6984 s @ 1789772 Hz
+  pos 10     1264162 cycles     0.7063 s @ 1789772 Hz
+  pos 11     1277845 cycles     0.7140 s @ 1789772 Hz
+  pos 12     1291717 cycles     0.7217 s @ 1789772 Hz
+  pos 13     1305394 cycles     0.7294 s @ 1789772 Hz
+  pos 14     1318959 cycles     0.7369 s @ 1789772 Hz
+  pos 15     1333228 cycles     0.7449 s @ 1789772 Hz
+  pos 16     1354851 cycles     0.7570 s @ 1789772 Hz
+  pos 17     1368394 cycles     0.7646 s @ 1789772 Hz
+  pos 18     1381975 cycles     0.7722 s @ 1789772 Hz
+  TOTAL     23717661 cycles    13.2518 s   (mean 1248297 cycles/token)

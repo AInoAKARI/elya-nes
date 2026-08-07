@@ -1,9 +1,11 @@
 rows                         1408
-nnz                          51299
+nnz                          53439
 weights                      102400
 stream_bytes                 57344
 header_bytes                 5656
 banks                        7
 bank_crossings_per_token     6
-tokens                       [1, 60, 0, 6, 27, 32, 5, 60, 41, 34, 34, 34, 34, 34, 34, 32, 5, 8, 27, 6]
+tokens                       [1, 8, 6, 26, 1, 4, 2, 0, 20, 18, 33, 0, 26, 1, 8, 17, 35, 0, 44, 18]
 ntok                         19
+weights_npz                  runs/final_bpe64_tau0.75.npz
+seed_tok                     1
