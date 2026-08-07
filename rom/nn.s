@@ -300,6 +300,24 @@ reset:
 
     lda #NTOKGEN
     sta res_ntok
+    ; also park the result in battery-backed PRG-RAM, so an emulator with no
+    ; scripting hook (ares) can be cross-checked through its .sav file
+    ldx #0
+@sav:
+    lda savmagic,x
+    sta $7FE0,x
+    inx
+    cpx #4
+    bne @sav
+    lda #NTOKGEN
+    sta $7FE4
+    ldx #0
+@sav2:
+    lda res_tokens,x
+    sta $7FE5,x
+    inx
+    cpx #NTOKGEN
+    bne @sav2
     ldx #M_DONE
     stx MARKER
 @hang:
@@ -503,6 +521,9 @@ row64_pos:
     adc #>POSTAB
     sta sptr+1
     rts
+
+savmagic:
+    .byte $45, $4C, $59, $41    ; "ELYA"
 
 mul64lo:
     .byte 0, 64, 128, 192
