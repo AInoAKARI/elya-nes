@@ -631,3 +631,30 @@ disagreeing about a constant like this again, `host/ref.py` now *generates*
 exactly one place. Regression-checked: rebuilding at `AV_SHIFT=4` produces a
 ROM **byte-identical** to the committed one, and the trainer/reference
 equivalence test still reports EXACT at both 1 and 4.
+
+## A near miss worth recording: a model is not just its weights
+
+After changing the default `AV_SHIFT` from 4 to 1, the previously trained
+60,000-step model was sampled with the new default and produced this:
+
+```
+seed  1 'b'      -> 'btle a"s. ymisnonwae ye r'
+seed 26 ' '      -> ' yywymeaaay.l sl'. 'n"'
+```
+
+Nothing raised. The npz loaded, the shapes matched, every weight was a legal
+ternary value, the forward pass ran, tokens came out. The model had simply
+been *trained* at `AV_SHIFT = 4` and was being *run* at 1. Sampled at the
+shift it was trained for, the identical file gives:
+
+```
+seed  1 'b'      -> 'big because a bird and s'
+seed 26 ' '      -> ' brank for his friends'
+```
+
+This is the same failure mode as the sibling N64 exporter - a silent
+disagreement between two halves of a pipeline that each look fine on their
+own. Fixed the same way: the four requantise shifts are now written **into
+the npz** as `_shifts`, and `ref.Model.from_npz` refuses to load a file whose
+stamp disagrees with the reference it is being loaded into. The 11 npz files
+that predate the stamp were backfilled with `[2, 3, 4, 3]`.
