@@ -1,0 +1,37 @@
+REPRODUCIBILITY over 3 runs (absolute timestamps): BIT-IDENTICAL
+
+MEASURED PRIMITIVES
+  primitive                              measured    prior
+  MMC5 bank switch  lda#+sta $5114              6        6  ok               MMC5
+  MMC5 bank switch  sta $5114 (A set)           4        4  ok               MMC5, value already in A
+  $6000 PRG-RAM  lda abs                        4        4  ok               = absolute, NO cartridge penalty
+  $6000 PRG-RAM  sta abs                        4        4  ok               
+  $6000 PRG-RAM  lda abs,y aligned              4        4  ok               
+  $6000 PRG-RAM  lda abs,y CROSS                5        5  ok               same page-cross hazard as RAM
+  PRG-ROM  lda tbl,y page-aligned               4        4  ok               
+  PRG-ROM  lda tbl,y CROSS                      5        5  ok               
+  8-bit accumulate, acc in A                    4        4  ok               per element
+    x16 (linearity)                            64       64  ok               16 x 4
+  8-bit accumulate, spilled to zp              12       12  ok               
+  16-bit accumulate                            20       20  ok               
+  32-bit accumulate                            36       36  ok               
+  ternary sign-separated gather                 8        8  ok               ldy idx,x + adc act,y
+    x16 (linearity)                           128      128  ok               16 x 8
+  ternary branchy: skip (trit 0)                7        7  ok               
+  ternary branchy: add  (trit +1)              20       20  ok               
+  ternary branchy: sub  (trit -1)              21       21  ok               
+  zero page  lda zp                             3        3  ok               for the $6000 comparison
+
+PRIMITIVES MATCHING PRIOR RUN: 19/19
+
+BANK SWITCH ACTUALLY HAPPENED (signature byte read at $8000)
+  before any switch      : $B0  (expect $B0)
+  after lda#$81/sta $5114: $B1  (expect $B1)
+  after sta $5114 (A=$82): $B2  (expect $B2)
+  at end of run          : $B2  (expect $B2)
+  -> OK
+
+PRG-RAM BANKS: header DECLARES 8 x 8 KB = 64 KB.
+  wrote $A0+b to bank b for b=0..7, then read every bank back:
+  b0=$A3 b1=$A3 b2=$A3 b3=$A3 b4=$A4 b5=$A5 b6=$A6 b7=$A7
+  distinct values -> 5 real 8 KB banks = 40 KB of PRG-RAM
