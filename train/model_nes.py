@@ -118,9 +118,16 @@ def quant_act_tbl(w):
 
 # ---------------------------------------------------------------------------
 class NesModel(nn.Module):
-    def __init__(self, tau=1.0, mode="twn", quant=True, logit_scale=0.05):
+    def __init__(self, tau=1.0, mode="twn", quant=2, logit_scale=0.05):
+        """quant: 2 = full QAT (what the ROM runs)
+                  1 = float weights, integer activations - isolates the cost of
+                      ternarising the weights
+                  0 = full fp32 control - isolates what this 3x64x64 shape can
+                      ever do, quantisation aside"""
         super().__init__()
-        self.tau, self.mode, self.quant = tau, mode, quant
+        self.tau, self.mode, self.quant = tau, mode, int(quant)
+        self.qw = self.quant >= 2
+        self.qa = self.quant >= 1
         g = torch.Generator().manual_seed(20260807)
 
         def p(*shape, s=1.0):
@@ -146,16 +153,16 @@ class NesModel(nn.Module):
 
     # -- quantised views ----------------------------------------------------
     def _w(self, p):
-        return ternarise(p, self.tau, self.mode if self.quant else "none")
+        return ternarise(p, self.tau, self.mode if self.qw else "none")
 
     def _tbl(self, p):
-        return quant_act_tbl(p) if self.quant else p
+        return quant_act_tbl(p) if self.qa else p
 
     def _mm(self, x, w, k, relu=False, raw=False):
         acc = x @ w.t()
         if raw:
             return acc
-        q = q_ste(acc, k)
+        q = q_ste(acc, k) if self.qa else acc / (1 << k)
         if relu:
             q = torch.clamp(q, min=0.0)
         return q
@@ -181,19 +188,28 @@ class NesModel(nn.Module):
 
             qh, kh, vh = heads(q), heads(k), heads(v)
             # scores[b,h,i,j] = sum_d floor(q[i,d]*k[j,d] / 4)
-            sc = floor_prod(qh.unsqueeze(3), kh.unsqueeze(2)).sum(-1)  # (B,H,T,T)
-            pr = softmax_q(sc, mask.expand(B, H, Tn, Tn), self.exptab)
-            # att[b,h,i,d] = quant(sum_j floor(pr[i,j]*v[j,d] / 4), 4)
-            av = floor_prod(pr.unsqueeze(-1), vh.unsqueeze(2))
-            av = torch.where(mask.unsqueeze(-1), av, torch.zeros_like(av)).sum(3)
-            att = q_ste(av, AV_SHIFT)
+            if self.qa:
+                sc = floor_prod(qh.unsqueeze(3), kh.unsqueeze(2)).sum(-1)  # (B,H,T,T)
+                pr = softmax_q(sc, mask.expand(B, H, Tn, Tn), self.exptab)
+                av = floor_prod(pr.unsqueeze(-1), vh.unsqueeze(2))
+                av = torch.where(mask.unsqueeze(-1), av, torch.zeros_like(av)).sum(3)
+                att = q_ste(av, AV_SHIFT)
+            else:
+                sc = (qh @ kh.transpose(-1, -2)) / (1 << MUL_SHIFT)
+                pr = torch.softmax(sc.masked_fill(~mask, -1e9) / SM_TEMP, -1) * SM_SUM
+                av = (pr @ vh) / (1 << MUL_SHIFT)
+                att = av / (1 << AV_SHIFT)
             att = att.transpose(1, 2).reshape(B, Tn, D)
 
             o = self._mm(att, self._w(self.Wo[l]), K_SHIFT)
-            x = torch.clamp(x + o, -ACT_MAX, ACT_MAX)
+            x = x + o
+            if self.qa:
+                x = torch.clamp(x, -ACT_MAX, ACT_MAX)
             h = self._mm(x, self._w(self.W1[l]), K_SHIFT, relu=True)
             f = self._mm(h, self._w(self.W2[l]), W2_SHIFT)
-            x = torch.clamp(x + f, -ACT_MAX, ACT_MAX)
+            x = x + f
+            if self.qa:
+                x = torch.clamp(x, -ACT_MAX, ACT_MAX)
             self.last_x.append(x.detach())
 
         # RAW integer logits, exactly what the ROM argmaxes.  The training

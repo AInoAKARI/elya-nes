@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+"""QAT trainer for the NES ternary transformer.
+
+Every constraint the 6502 kernel imposes is inside the forward pass:
+ternary weights, 4-bit activations in -7..7, the fixed requantise shifts, the
+floored 256-byte multiply table, the quantised softmax with its 15-entry exp
+table and power-of-two normalisation, and the -7..7 residual clamps.  Nothing
+is applied after training.
+
+The block-16 accumulate is NOT modelled here and does not need to be: with the
+activations stored biased into 0..14 a block of 16 sums to at most 224 < 256,
+so the 8-bit accumulate is provably lossless and `ternary_row` is a plain sum.
+That is the whole reason the port uses block 16; block 32 was measured to
+overflow and is refuted in FINDINGS.
+"""
+import argparse
+import json
+import math
+import os
+import sys
+import time
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import model_nes as M
+
+DEV = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def batches(data, B, T, gen):
+    n = len(data) - T - 1
+    ix = torch.randint(0, n, (B,), generator=gen)
+    x = torch.stack([torch.from_numpy(data[i:i + T].astype(np.int64)) for i in ix])
+    y = torch.stack([torch.from_numpy(data[i + 1:i + 1 + T].astype(np.int64)) for i in ix])
+    return x.to(DEV), y.to(DEV)
+
+
+@torch.no_grad()
+def evaluate(model, data, B, T, iters, gen, scale):
+    model.eval()
+    tot = 0.0
+    for _ in range(iters):
+        x, y = batches(data, B, T, gen)
+        lg = model(x) * scale()
+        tot += F.cross_entropy(lg.reshape(-1, M.V), y.reshape(-1)).item()
+    model.train()
+    return tot / iters
+
+
+@torch.no_grad()
+def sparsity(model):
+    z = model.export_int()
+    nnz = tot = 0
+    for k, v in z.items():
+        if k in ("emb", "pos"):
+            continue
+        nnz += int((v != 0).sum())
+        tot += v.size
+    return nnz, tot
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--vocab", default="bpe64", choices=("bpe64", "charset"))
+    ap.add_argument("--tau", type=float, default=1.0)
+    ap.add_argument("--mode", default="twn", choices=("twn", "bn"))
+    ap.add_argument("--quant", type=int, default=2,
+                help="2=full QAT, 1=float weights only, 0=fp32 control")
+    ap.add_argument("--learn-scale", type=int, default=1)
+    ap.add_argument("--steps", type=int, default=6000)
+    ap.add_argument("--batch", type=int, default=192)
+    ap.add_argument("--lr", type=float, default=3e-3)
+    ap.add_argument("--warmup", type=int, default=200)
+    ap.add_argument("--eval-every", type=int, default=500)
+    ap.add_argument("--eval-iters", type=int, default=20)
+    ap.add_argument("--logit-scale", type=float, default=0.1)
+    ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--name", default=None)
+    ap.add_argument("--out", default="runs")
+    a = ap.parse_args()
+    name = a.name or ("%s_%s_tau%.2f_q%d_s%d" % (a.vocab, a.mode, a.tau, a.quant, a.seed))
+    os.makedirs(a.out, exist_ok=True)
+
+    fit = np.load("data/fit_%s.npy" % a.vocab)
+    val = np.load("data/val_%s.npy" % a.vocab)
+    torch.manual_seed(a.seed)
+    gen = torch.Generator().manual_seed(a.seed)
+    gev = torch.Generator().manual_seed(9999)
+
+    model = M.NesModel(tau=a.tau, mode=a.mode, quant=a.quant,
+                       logit_scale=a.logit_scale).to(DEV)
+    torch.manual_seed(a.seed)          # re-seed: NesModel uses its own generator
+    with torch.no_grad():              # per-arm init so seeds actually differ
+        for p in model.parameters():
+            if p.dim() >= 2:
+                p.mul_(1.0).add_(torch.randn_like(p) * 0.1 * a.seed)
+    model.renorm_()
+    def scale():
+        return model.logit_scale.abs() if a.learn_scale else a.logit_scale
+
+    opt = torch.optim.AdamW(model.parameters(), lr=a.lr, betas=(0.9, 0.95),
+                            weight_decay=0.0)
+    sched = torch.optim.lr_scheduler.LambdaLR(
+        opt, lambda s: min(1.0, (s + 1) / a.warmup) *
+        (0.5 * (1 + math.cos(math.pi * min(1.0, s / a.steps)))) if s > a.warmup
+        else (s + 1) / a.warmup)
+
+    hist = []
+    t0 = time.time()
+    for step in range(a.steps):
+        x, y = batches(fit, a.batch, M.T, gen)
+        lg = model(x) * scale()
+        loss = F.cross_entropy(lg.reshape(-1, M.V), y.reshape(-1))
+        opt.zero_grad(set_to_none=True)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        opt.step()
+        sched.step()
+        model.renorm_()
+        if (step + 1) % a.eval_every == 0 or step == 0:
+            fl = evaluate(model, fit, a.batch, M.T, a.eval_iters, gev, scale)
+            vl = evaluate(model, val, a.batch, M.T, a.eval_iters, gev, scale)
+            nnz, tot = sparsity(model)
+            hist.append(dict(step=step + 1, fit=fl, val=vl, nnz=nnz,
+                             density=nnz / tot, secs=time.time() - t0))
+            print("%-28s step %5d  fit %.4f  val %.4f  density %.4f  %.0fs"
+                  % (name, step + 1, fl, vl, nnz / tot, time.time() - t0), flush=True)
+
+    fl = evaluate(model, fit, a.batch, M.T, 60, gev, scale)
+    vl = evaluate(model, val, a.batch, M.T, 60, gev, scale)
+    nnz, tot = sparsity(model)
+    z = model.export_int()
+    np.savez(os.path.join(a.out, name + ".npz"), **z)
+    meta = dict(name=name, vocab=a.vocab, tau=a.tau, mode=a.mode, quant=a.quant,
+                steps=a.steps, batch=a.batch, lr=a.lr, seed=a.seed,
+                logit_scale=float(scale().detach()) if a.learn_scale else a.logit_scale, fit=fl, val=vl, nnz=nnz, weights=tot,
+                density=nnz / tot, uniform=math.log(M.V), hist=hist,
+                secs=time.time() - t0)
+    json.dump(meta, open(os.path.join(a.out, name + ".json"), "w"), indent=1)
+    print("FINAL %-24s fit %.4f  val %.4f  (uniform %.4f)  nnz %d/%d = %.4f"
+          % (name, fl, vl, math.log(M.V), nnz, tot, nnz / tot))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
