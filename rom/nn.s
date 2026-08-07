@@ -183,6 +183,13 @@ tbl_exp:    .incbin "out/model/tbl_exp.bin"
 ; ===========================================================================
 .segment "CHAINS"
 
+; The gather pointer (wchain, X) represents (stream offset - BLOCKSZ), which
+; is why every bank begins with BLOCKSZ bytes of padding - it keeps that
+; quantity non-negative.  Carrying the -BLOCKSZ in the POINTER rather than in
+; the instruction operand keeps each chain's base page-aligned; with the
+; operand form the base low byte was $F0 and essentially every indexed load
+; paid the measured page-cross +1, worth a whole cycle per MAC.
+;
 ; Entry k reads stream offset (k - BLOCKSZ), so entering the chain at entry
 ; (BLOCKSZ - r) covers exactly the FIRST r bytes of the list once X has been
 ; pre-advanced to the offset one PAST the block.  Entering a chain of constant
@@ -191,7 +198,7 @@ tbl_exp:    .incbin "out/model/tbl_exp.bin"
 ; right token at positions 0 and 1.
 .macro GCHAIN pg
     .repeat BLOCKSZ, k
-    ldy $8000 + pg * 256 + k - BLOCKSZ, x
+    ldy $8000 + pg * 256 + k, x
     adc ACTB, y
     .endrepeat
     jmp (wfold)
@@ -275,6 +282,9 @@ reset:
 
     ldx #254
     stx MARKER              ; SYNC
+.ifdef BENCH
+    jmp bench
+.endif
 
 @loop:
     MARKX M_BEGIN
@@ -358,6 +368,44 @@ dbg_dump_x:                     ; A = slot
     bne @l
     ldx xsave
     rts
+.endif
+
+.ifdef BENCH
+; --- kernel micro-benchmark ------------------------------------------------
+; Runs the REAL `gather` (not a copy of it) over synthetic lists of a range of
+; lengths, so the per-MAC slope and the per-list intercept can be separated
+; and compared against the 8-cycle sign-separated gather primitive.
+bench_lens:
+    .byte 1, 8, 16, 17, 32, 64, 96, 128
+BENCH_N = 8
+
+bench:
+    lda #0
+    sta di
+@l:
+    jsr chain_reset         ; X = 0, wchain = gchain00
+    lda #0
+    sta totL
+    sta totH
+    lda #<fold_add
+    sta wfold
+    lda #>fold_add
+    sta wfold+1
+    ldy di
+    lda bench_lens,y
+    sta t1
+    MARKX M_BEGIN
+    lda t1
+    jsr gather
+    MARKX M_END
+    inc di
+    lda di
+    cmp #BENCH_N
+    bcc @l
+    ldx #M_DONE
+    stx MARKER
+@hang2:
+    jmp @hang2
 .endif
 
 ; ===========================================================================

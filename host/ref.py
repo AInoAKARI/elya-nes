@@ -316,20 +316,33 @@ def pack(model, outdir):
         for r in mat:
             rows.append(split_row(r))
 
-    stream = bytearray()
+    # Each bank opens with BLOCK bytes of padding.  The ROM's gather chains
+    # address the stream as (offset - BLOCK) so that the chain's base address
+    # is page-aligned; without the pad that quantity goes negative at the start
+    # of a bank and the chain pointer runs off the front of the chain table.
+    # With the base page-aligned the indexed load is 4 cycles instead of 5 -
+    # a straight 1 cycle per MAC.
+    #
+    # bank_off is tracked EXPLICITLY rather than as len(stream) % BANK: a row
+    # that ends exactly on a bank boundary makes the modulo read 0, the pad is
+    # then never emitted, and the ROM's pointer underflows into chain -1 and
+    # executes garbage.  That is exactly what happened the first time.
+    stream = bytearray(b"\x00" * BLOCK)
+    bank_off = BLOCK
     headers = bytearray()
     crossings = 0
     for p, n in rows:
         need = len(p) + len(n)
-        off = len(stream) % BANK
-        if off + need > BANK:
-            # a row must never straddle a bank: pad and emit the sentinel
+        if bank_off + need > BANK:
             headers += bytes([SENTINEL, 0, 0, 0])
-            stream += b"\x00" * (BANK - off)
+            stream += b"\x00" * (BANK - bank_off)     # fill out this bank
+            stream += b"\x00" * BLOCK                 # open the next one
+            bank_off = BLOCK
             crossings += 1
         d7 = -BIAS * (len(p) - len(n))
         headers += bytes([len(p), len(n), d7 & 0xFF, (d7 >> 8) & 0xFF])
         stream += bytes(p) + bytes(n)
+        bank_off += need
     if len(stream) % BANK:
         stream += b"\x00" * (BANK - len(stream) % BANK)
 

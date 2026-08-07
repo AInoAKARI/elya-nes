@@ -6,9 +6,9 @@ al 000221 .__RAM_LAST__
 al 000100 .__RAM_SIZE__
 al 000200 .__RAM_START__
 al 000000 .__ZP_FILEOFFS__
-al 000030 .__ZP_LAST__
+al 000031 .__ZP_LAST__
 al 000100 .__ZP_SIZE__
 al 000000 .__ZP_START__
 al 000220 .res_ntok
 al 000200 .res_tokens
-al 00EC60 .reset
+al 00ECC3 .reset
