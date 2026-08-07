@@ -670,12 +670,13 @@ range. Trained at the same tau, same budget, same seed, it is **worse**:
 | **2** | **8 of 15** | **2.2217** | **1.5280** |
 | 3 | 4 of 15 | 2.2358 | 1.5377 |
 | 4 (as shipped) | 2 of 15 | 2.2435 | 1.5432 |
+| 5 | 1-2 of 15 | 2.2823 | 1.5698 |
 
 (bpe64, tau = 0.75, 12,000 steps, seed 1. Seed noise on this axis is ~0.009
 nats/char, so 1-vs-2 is real and 3-vs-4 is not.)
 
 The ladder is U-shaped with the optimum at **2**, and the "correct" shift by
-the range argument is the **worst** of the four. Widening the attention output
+the range argument is the **worst** of the five. Widening the attention output
 does not help; it hurts.
 
 The explanation is the same one as the fp32 control. This model has no

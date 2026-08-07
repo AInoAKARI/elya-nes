@@ -7,3 +7,6 @@ av3_bpe64_tau0.75            step  6000  fit 2.3989  val 2.4001  density 0.5409 
 av3_bpe64_tau0.75            step 12000  fit 2.2470  val 2.2347  density 0.5380  193s
 FINAL av3_bpe64_tau0.75        fit 2.2343  val 2.2358  (uniform 4.1589)  nnz 55092/102400 = 0.5380
 av5_bpe64_tau0.75            step     1  fit 8.1362  val 8.1587  density 0.5503  1s
+av5_bpe64_tau0.75            step  6000  fit 2.4305  val 2.4310  density 0.5428  97s
+av5_bpe64_tau0.75            step 12000  fit 2.2865  val 2.2782  density 0.5412  193s
+FINAL av5_bpe64_tau0.75        fit 2.2774  val 2.2823  (uniform 4.1589)  nnz 55422/102400 = 0.5412
