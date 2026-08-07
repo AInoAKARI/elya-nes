@@ -3,3 +3,4 @@ bpe64_twn_tau0.50_q2_s1      step  2000  fit 2.6937  val 2.6908  density 0.6847 
 bpe64_twn_tau0.50_q2_s1      step  4000  fit 2.4872  val 2.4834  density 0.6794  69s
 bpe64_twn_tau0.50_q2_s1      step  6000  fit 2.4281  val 2.4285  density 0.6775  103s
 bpe64_twn_tau0.50_q2_s1      step  8000  fit 2.3820  val 2.3959  density 0.6745  138s
+bpe64_twn_tau0.50_q2_s1      step 10000  fit 2.3706  val 2.3794  density 0.6738  171s

@@ -47,8 +47,8 @@ def decode(stream, headers, shapes):
             base = bank * BANK + off
             if base + npos + nneg > (bank + 1) * BANK:
                 raise SystemExit("row %s:%d straddles a bank" % (name, r))
-            p = stream[base:base + npos]
-            n = stream[base + npos:base + npos + nneg]
+            p = list(stream[base:base + npos])
+            n = list(stream[base + npos:base + npos + nneg])
             off += npos + nneg
             m[r, np.asarray(p, dtype=np.int64)] = 1
             m[r, np.asarray(n, dtype=np.int64)] = -1
