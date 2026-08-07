@@ -922,3 +922,21 @@ Block 16 remains provably and observably safe. Block 32 remains refuted.
   this scale either way.
 * **One corpus.** TinyStories only. No check that the charset choice
   generalises to a different register of English.
+
+## Note on reproducing the older transcripts
+
+`./build.sh` now emits a random-init ROM at the new default `AV_SHIFT = 2`, so
+it no longer reproduces `out/FULL_VERIFICATION.txt`, which was taken at
+`AV_SHIFT = 4`. To reproduce that transcript byte for byte:
+
+```sh
+NES_AV_SHIFT=4 ./build.sh
+python3 tools/run_nn.py out/nn.nes out/model/expected.json 60
+```
+
+Checked: at `NES_AV_SHIFT=4` the rebuilt `nn.nes` is **byte-identical** to the
+ROM committed before this session, so the shifts.inc refactor, the `SEEDTOK`
+define and the `NSTREAM` define are all provably neutral.
+
+The committed `out/nn.nes` is the **trained** cartridge
+(`runs/final_av2_bpe64_tau0.75.npz`, seed token 1), not the random-init one.
