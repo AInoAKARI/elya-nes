@@ -51,7 +51,10 @@ formulation.
 
 | | |
 |---|---|
-| vocab `V` | 128 |
+| vocab `V` | 64 |  <!-- was documented as 128; the ROM (rom/nn.s NVOCAB=64), the host
+                          reference (host/ref.py V=64) and the committed weight count all
+                          say 64. 98,304 layer weights + 64*64 embedding = 102,400, which
+                          is the figure in FINDINGS; V=128 would give 106,496. -->
 | d_model `D` | 64 |
 | layers `L` | 3 |
 | heads `H` / d_head | 2 / 32 |
