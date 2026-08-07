@@ -127,3 +127,32 @@ uses **$5113 = 4..7** for its 32 KB banked window.
 
 Files: `rom/prim.s`, `rom/mmc1.s`, `rom/mmc3.s`, `rom/mmc5.cfg`,
 `rom/mmc1.cfg`, `rom/mmc3.cfg`, `tools/run_prim.py`, `out/prim_report.txt`.
+
+## 3. Host reference built - and it caught a generator bug immediately
+
+`host/ref.py` is the exact-integer specification (no floating point anywhere in
+the forward pass) and also the packer.
+
+Model shape: V=64, D=64, L=3, H=2, d_head=32, F=128, T=20 ->
+**102,400 ternary weights**, 1,408 rows, **51,299 nonzeros**, 57,344 bytes of
+weight stream (7 banks), 5,656 bytes of row headers.
+
+**Negative worth recording:** the first version used a textbook LCG. With a
+power-of-two modulus an LCG's low bits are periodic, so `s % 4` cycled
+0,1,2,3 and *every* 64-input row came out with exactly 32 nonzeros. The tell
+was the packer reporting **zero bank crossings** - 51,200 stream bytes made of
+rows that are all exactly 32 or 64 bytes tile 8,192 with no remainder. Had
+that gone unnoticed the exactness test would have run on perfectly structured
+weights and been far weaker than it looked. Replaced with xorshift32; nnz is
+now 51,299 and irregular.
+
+**BANK CROSSINGS PER TOKEN = 6** (measured by the packer, not estimated:
+6 rows out of 1,408 would have straddled an 8 KB boundary and were pushed to
+the next bank behind a sentinel). At the measured MMC5 cost of 6 cycles that
+is **36 cycles per token**. Against a predicted ~900,000 cycles/token that is
+0.004%. The reason is structural: the weight stream is one forward sweep per
+token, never a random walk.
+
+Generated token ids (start token 1, 19 steps, greedy argmax):
+`1, 60, 0, 6, 27, 32, 5, 60, 41, 34, 34, 34, 34, 34, 34, 32, 5, 8, 27, 6`
+- 10 distinct values, so the ROM-vs-host comparison is not a constant.

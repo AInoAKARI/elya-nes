@@ -39,12 +39,27 @@ SENTINEL = 0xFF  # header n_pos value meaning "advance to the next bank"
 # deterministic RNG (a plain LCG so the stream is reproducible anywhere)
 # ---------------------------------------------------------------------------
 class LCG:
+    """xorshift32.
+
+    This started out as a textbook LCG and that was a genuine bug: with a
+    power-of-two modulus the low bits of an LCG are periodic, so `s % 4` just
+    cycled 0,1,2,3 and every 64-input row came out with EXACTLY 32 nonzeros.
+    The tell was that the packer reported zero bank crossings - 51,200 stream
+    bytes made of rows that were all exactly 32 or 64 long tile 8,192 with no
+    remainder. Structured weights would also have made the exactness test far
+    weaker than it looks. xorshift32 has usable low bits.
+    """
+
     def __init__(self, seed):
-        self.s = seed & 0xFFFFFFFF
+        self.s = (seed & 0xFFFFFFFF) or 1
 
     def next(self):
-        self.s = (self.s * 1103515245 + 12345) & 0x7FFFFFFF
-        return self.s
+        s = self.s
+        s ^= (s << 13) & 0xFFFFFFFF
+        s ^= s >> 17
+        s ^= (s << 5) & 0xFFFFFFFF
+        self.s = s
+        return s
 
     def below(self, n):
         return self.next() % n
@@ -86,7 +101,9 @@ def build_mul_table():
         av = a - 16 if a >= 8 else a
         for b in range(16):
             bv = b - 16 if b >= 8 else b
-            t[(a << 4) | b] = ((av * bv) >> 2) + 13
+            # nibble 8 (= -8) is unreachable for real activations, which are
+            # clamped to -7..7, so clamping it here cannot affect any result.
+            t[(a << 4) | b] = max(0, min(255, ((av * bv) >> 2) + 13))
     return t
 
 
