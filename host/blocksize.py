@@ -18,7 +18,9 @@ import ref
 
 
 def main():
-    m = ref.Model()
+    npz = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("NES_WEIGHTS")
+    m = ref.Model.from_npz(npz) if npz else ref.Model()
+    print("weights: %s" % (npz or "(random init)"))
     r = ref.Runner(m)
     cur = 1
     stats = {}

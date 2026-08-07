@@ -501,3 +501,21 @@ exact-bank-boundary pad; that fix changed the stream by a few bytes and cost
 1,509 cycles per token. The clean-rebuild transcript is the truth and 4.5 is
 stale by that amount. Everything below uses **1,221,027 cycles/token at
 nnz = 51,299 (density 0.5010)** as the random-init baseline.
+
+## Block 32 is refuted harder on trained weights than on random ones
+
+The block-size argument depends on the *activation* range, not the weights,
+but the number of blocks and therefore the overflow count depends on the
+sparsity training chooses. Re-measured over the real 19-token trajectory with
+the trained tau=0.50 weights (density 0.674):
+
+| block | blocks | max value | signed >127 | biased >255 |
+|---|---|---|---|---|
+| 16 | 110,409 | **212** | 0 | **0** |
+| 32 | 60,838 | 382 | 269 | **7,308 (12.0%)** |
+
+Against the random-init figure of 5,477 of 56,981 (9.6%). Denser rows mean
+longer index lists, longer lists mean more full 32-blocks rather than short
+tails, and every term in a sign-separated block has the same sign, so there is
+nothing to cancel. Block 16's worst observed value is 212 against the
+provable bound of 224 - close, and it is *provably* closed, which is the point.
