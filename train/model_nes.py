@@ -169,6 +169,7 @@ class NesModel(nn.Module):
         x = torch.clamp(x, -ACT_MAX, ACT_MAX)
 
         mask = self.causal[:Tn, :Tn].unsqueeze(0).unsqueeze(0)      # (1,1,T,T)
+        self.last_x = []
 
         for l in range(L):
             q = self._mm(x, self._w(self.Wq[l]), K_SHIFT)
@@ -193,6 +194,7 @@ class NesModel(nn.Module):
             h = self._mm(x, self._w(self.W1[l]), K_SHIFT, relu=True)
             f = self._mm(h, self._w(self.W2[l]), W2_SHIFT)
             x = torch.clamp(x + f, -ACT_MAX, ACT_MAX)
+            self.last_x.append(x.detach())
 
         # RAW integer logits, exactly what the ROM argmaxes.  The training
         # temperature is applied by the caller so that this function stays a

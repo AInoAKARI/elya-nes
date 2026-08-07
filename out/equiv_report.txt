@@ -1,0 +1,10 @@
+mul table == floor(a*b/4) over -7..7 : YES (0 disagreements)
+layer 0  x:  max|torch - ref| = 0   over 1280 values
+layer 1  x:  max|torch - ref| = 0   over 1280 values
+layer 2  x:  max|torch - ref| = 0   over 1280 values
+logits:      max|torch - ref| = 0   over 1280 values
+argmax token ids equal        : True
+  torch: [9, 31, 27, 61, 7, 24, 50, 27, 5, 31, 47, 7, 5, 50, 47, 27, 24, 61, 53, 47]
+  ref  : [9, 31, 27, 61, 7, 24, 50, 27, 5, 31, 47, 7, 5, 50, 47, 27, 24, 61, 53, 47]
+
+FORWARD-PASS EQUIVALENCE: EXACT
