@@ -846,10 +846,10 @@ and that is the claim being made.
 |---|---|---|---|
 | nonzero weights | 51,299 | **52,207** | +908 (+1.8%) |
 | density | 0.5010 | 0.5098 | +0.0088 |
-| position 0 | 1,091,722 | 1,101,864 | |
-| position 18 | 1,354,566 | 1,364,891 | |
+| position 0 | 1,091,722 | 1,103,615 | |
+| position 18 | 1,354,566 | 1,366,939 | |
 | **mean over 19 tokens** | **1,221,027** | **1,233,099** | **+12,072 (+0.99%)** |
-| seconds per token @ 1789772 Hz | 0.6822 | **0.6890** | |
+| seconds per token @ 1789772 Hz | 0.6822 | **0.6889** | |
 | ternary kernel | 16.34 cycles/MAC | **16.30 cycles/MAC** | |
 | ternary kernel | 8.19 cycles/weight | **8.31 cycles/weight** | |
 
