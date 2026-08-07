@@ -658,3 +658,47 @@ own. Fixed the same way: the four requantise shifts are now written **into
 the npz** as `_shifts`, and `ref.Model.from_npz` refuses to load a file whose
 stamp disagrees with the reference it is being loaded into. The 11 npz files
 that predate the stamp were backfilled with `[2, 3, 4, 3]`.
+
+## Fixing the attention shift made it WORSE - the ladder
+
+The bound above says `AV_SHIFT = 1` is the shift that uses the full 4-bit
+range. Trained at the same tau, same budget, same seed, it is **worse**:
+
+| AV_SHIFT | output levels reachable | val (nats/token) | val/char |
+|---|---|---|---|
+| 1 | 14 of 15 | 2.3020 | 1.5832 |
+| **2** | **8 of 15** | **2.2217** | **1.5280** |
+| 3 | 4 of 15 | 2.2358 | 1.5377 |
+| 4 (as shipped) | 2 of 15 | 2.2435 | 1.5432 |
+
+(bpe64, tau = 0.75, 12,000 steps, seed 1. Seed noise on this axis is ~0.009
+nats/char, so 1-vs-2 is real and 3-vs-4 is not.)
+
+The ladder is U-shaped with the optimum at **2**, and the "correct" shift by
+the range argument is the **worst** of the four. Widening the attention output
+does not help; it hurts.
+
+The explanation is the same one as the fp32 control. This model has no
+normalisation layer at all. The attention output goes through `Wo` and into
+`x = clamp(x + o, -7, 7)`, and the residual stream is only 15 levels wide. A
+wide attention update spends most of its magnitude being clipped off by that
+clamp, and clipping is where gradient goes to die. A narrow one behaves as a
+small gated correction the residual can actually carry. At `AV_SHIFT = 1` the
+attention path has the most information and the least ability to deliver it.
+
+So the "attention carries one bit" finding stands as a **description** of the
+architecture and the obvious fix is **refuted by measurement**. AV_SHIFT is
+moved from 4 to 2, worth 0.015 nats/char - real, but a twentieth of what the
+vocabulary choice was worth.
+
+Also verified: the trained cartridge reproduces the host reference exactly
+from three independent starting tokens, not one.
+
+```
+seed token  1 : max|dW| = 0,  TOKENS MATCHING: 19/19 -> EXACT
+seed token 26 : max|dW| = 0,  TOKENS MATCHING: 19/19 -> EXACT
+seed token 40 : max|dW| = 0,  TOKENS MATCHING: 19/19 -> EXACT
+```
+
+57 generated tokens, every one bit-identical between the 6502 and the
+exact-integer specification.
