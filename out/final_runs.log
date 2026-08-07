@@ -27,3 +27,5 @@ FINAL ctl_fp32_lr3e-4          fit 3.8960  val 3.8953  (uniform 4.1589)  nnz 435
 ctl_floatw_tau0.75           step     1  fit 12.8511  val 12.8990  density 0.5503  1s
 ctl_floatw_tau0.75           step  4000  fit 2.6750  val 2.6695  density 0.5502  62s
 ctl_floatw_tau0.75           step  8000  fit 2.4500  val 2.4433  density 0.5502  123s
+ctl_floatw_tau0.75           step 12000  fit 2.3956  val 2.3872  density 0.5497  184s
+FINAL ctl_floatw_tau0.75       fit 2.3864  val 2.3911  (uniform 4.1589)  nnz 56292/102400 = 0.5497
