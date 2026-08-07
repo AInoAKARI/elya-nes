@@ -33,6 +33,8 @@ AV_SHIFT = 4     # requantise shift for the attention value sum
 SM_SHIFT = 3     # score-difference shift feeding the exp table
 
 BANK = 8192      # PRG bank size
+STREAM_BANKS = int(os.environ.get("NES_STREAM_BANKS", "7"))
+                 # rom/nn.cfg WS0..WS6; the stream image is always this long
 SENTINEL = 0xFF  # header n_pos value meaning "advance to the next bank"
 
 # ---------------------------------------------------------------------------
@@ -335,6 +337,10 @@ def generate(model, start_tok, n):
 # ---------------------------------------------------------------------------
 # packer: stream + headers, bank aware
 # ---------------------------------------------------------------------------
+def nnz_of(rows):
+    return sum(len(p) + len(n) for p, n in rows)
+
+
 def pack(model, outdir):
     rows = []                       # (pos_idx, neg_idx) in stream order
     for name, mat in model.matrices():
@@ -370,6 +376,23 @@ def pack(model, outdir):
         bank_off += need
     if len(stream) % BANK:
         stream += b"\x00" * (BANK - len(stream) % BANK)
+
+    # rom/nn.s incbins the stream at FIXED offsets 0, $2000 ... so the image
+    # has to be exactly STREAM_BANKS banks long whatever the model's sparsity.
+    # A trained model is sparser than the 50%-dense random init, so without
+    # this the last incbin reads past the end of the file; a denser one would
+    # silently lose its tail rows, which is far worse.
+    want = STREAM_BANKS * BANK
+    if len(stream) > want:
+        raise SystemExit(
+            "stream needs %d banks but rom/nn.cfg provides %d.  nnz=%d "
+            "(density %.4f); the 7-bank window caps density at about %.4f."
+            % (len(stream) // BANK, STREAM_BANKS, nnz_of(rows),
+               nnz_of(rows) / float(sum(len(m) * len(m[0])
+                                        for _, m in model.matrices())),
+               (want - STREAM_BANKS * BLOCK) /
+               float(sum(len(m) * len(m[0]) for _, m in model.matrices()))))
+    stream += b"\x00" * (want - len(stream))
 
     def w(name, data):
         with open(os.path.join(outdir, name), "wb") as f:
