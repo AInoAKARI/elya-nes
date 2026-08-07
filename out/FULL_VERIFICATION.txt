@@ -1,0 +1,169 @@
+t_br_nottaken    $8306 bcs rel=+0  PC_after=$8308 target=$8308 crossed=False  expect bcs taken=False crossed=None -> 2 cyc  OK
+t_br_taken       $8406 bcc rel=+3  PC_after=$8408 target=$840B crossed=False  expect bcc taken=True crossed=False -> 3 cyc  OK
+t_br_cross       $85FB bcc rel=+3  PC_after=$85FD target=$8600 crossed=True  expect bcc taken=True crossed=True -> 4 cyc  OK
+BRANCH PLACEMENT: OK
+
+REPRODUCIBILITY over 3 runs, including absolute timestamps: BIT-IDENTICAL
+
+CLOCK DERIVATION
+  reference payload: lda #imm (2) + sta abs (4) = 6 cycles
+  measured window   : 6704764629228 as (payload + 6-cycle marker macro = 12)
+    1789772 (MAME truncated)     1789772.0000 Hz -> 11.999999999983 cycles  err -1.734e-11
+    21477272/12 (true NTSC)      1789772.6667 Hz -> 12.000004469826 cycles  err +4.470e-06
+    1789773 (rounded)            1789773.0000 Hz -> 12.000006704747 cycles  err +6.705e-06
+    1789800 (folklore)           1789800.0000 Hz -> 12.000187733392 cycles  err +1.877e-04
+  chosen: 1789772 Hz
+
+RESOLUTION: 1 CPU cycle = 558730385770 as = 558.7304 ns
+
+DATASHEET CALIBRATION
+  payload                  measured   expect 
+  empty                           0        0  ok               no payload - proves no constant is smuggled in
+  nop                             2        2  ok               
+  lda #imm                        2        2  ok               
+  lda zp                          3        3  ok               
+  lda abs                         4        4  ok               
+  sta abs                         4        4  ok               
+  lda abs,x  no cross             4        4  ok               
+  lda abs,x  CROSS                5        5  ok               indexed LOAD takes +1
+  lda abs,y  no cross             4        4  ok               
+  lda abs,y  CROSS                5        5  ok               indexed LOAD takes +1
+  sta abs,x  no cross             5        5  ok               indexed STORE always 5
+  sta abs,x  CROSS                5        5  ok               indexed STORE takes NO +1
+  sta abs,y  CROSS                5        5  ok               indexed STORE takes NO +1
+  lda (zp),y no cross             5        5  ok               
+  lda (zp),y CROSS                6        6  ok               
+  sta (zp),y CROSS                6        6  ok               always 6
+  lda (zp,x)                      6        6  ok               
+  inc abs                         6        6  ok               RMW dummy write modelled
+  inc zp                          5        5  ok               
+  asl a                           2        2  ok               
+  jsr + rts                      12       12  ok               
+  pha + pla                       7        7  ok               
+  lda zp,x                        4        4  ok               
+  inc abs,x                       7        7  ok               RMW indexed always 7
+  branch not taken                2        2  ok               
+  branch taken                    3        3  ok               
+  branch taken CROSS              4        4  ok               
+  lda #imm + sta abs              6        6  ok               the clock reference
+
+CALIBRATION SCORE: 28/28, 0 mismatches
+worst deviation of any window from an integer cycle count: 2.602e-11
+
+REPRODUCIBILITY over 3 runs (absolute timestamps): BIT-IDENTICAL
+
+MEASURED PRIMITIVES
+  primitive                              measured    prior
+  MMC5 bank switch  lda#+sta $5114              6        6  ok               MMC5
+  MMC5 bank switch  sta $5114 (A set)           4        4  ok               MMC5, value already in A
+  $6000 PRG-RAM  lda abs                        4        4  ok               = absolute, NO cartridge penalty
+  $6000 PRG-RAM  sta abs                        4        4  ok               
+  $6000 PRG-RAM  lda abs,y aligned              4        4  ok               
+  $6000 PRG-RAM  lda abs,y CROSS                5        5  ok               same page-cross hazard as RAM
+  PRG-ROM  lda tbl,y page-aligned               4        4  ok               
+  PRG-ROM  lda tbl,y CROSS                      5        5  ok               
+  8-bit accumulate, acc in A                    4        4  ok               per element
+    x16 (linearity)                            64       64  ok               16 x 4
+  8-bit accumulate, spilled to zp              12       12  ok               
+  16-bit accumulate                            20       20  ok               
+  32-bit accumulate                            36       36  ok               
+  ternary sign-separated gather                 8        8  ok               ldy idx,x + adc act,y
+    x16 (linearity)                           128      128  ok               16 x 8
+  ternary branchy: skip (trit 0)                7        7  ok               
+  ternary branchy: add  (trit +1)              20       20  ok               
+  ternary branchy: sub  (trit -1)              21       21  ok               
+  zero page  lda zp                             3        3  ok               for the $6000 comparison
+
+PRIMITIVES MATCHING PRIOR RUN: 19/19
+
+BANK SWITCH ACTUALLY HAPPENED (signature byte read at $8000)
+  before any switch      : $B0  (expect $B0)
+  after lda#$81/sta $5114: $B1  (expect $B1)
+  after sta $5114 (A=$82): $B2  (expect $B2)
+  at end of run          : $B2  (expect $B2)
+  -> OK
+
+PRG-RAM BANKS: header DECLARES 8 x 8 KB = 64 KB.
+  wrote $A0+b to bank b for b=0..7, then read every bank back:
+  b0=$A3 b1=$A3 b2=$A3 b3=$A3 b4=$A4 b5=$A5 b6=$A6 b7=$A7
+  $5113 = 0..3 -> 1 distinct region(s)  (MMC5's separate first chip)
+  $5113 = 4..7 -> 4 distinct 8 KB banks = 32 KB of BANKED PRG-RAM
+  -> the port uses $5113 = 4..7
+
+status: OK
+marker events: 39
+
+ROM vs HOST, token by token
+  pos  rom      host     
+  0    60       60       ok
+  1    0        0        ok
+  2    6        6        ok
+  3    27       27       ok
+  4    32       32       ok
+  5    5        5        ok
+  6    60       60       ok
+  7    41       41       ok
+  8    34       34       ok
+  9    34       34       ok
+  10   34       34       ok
+  11   34       34       ok
+  12   34       34       ok
+  13   34       34       ok
+  14   32       32       ok
+  15   5        5        ok
+  16   8        8        ok
+  17   27       27       ok
+  18   6        6        ok
+
+TOKENS MATCHING: 19/19  -> EXACT
+
+CYCLES PER TOKEN (exact, from the write tap)
+  pos 0      1091722 cycles     0.6100 s @ 1789772 Hz
+  pos 1      1105226 cycles     0.6175 s @ 1789772 Hz
+  pos 2      1119030 cycles     0.6252 s @ 1789772 Hz
+  pos 3      1133000 cycles     0.6330 s @ 1789772 Hz
+  pos 4      1146895 cycles     0.6408 s @ 1789772 Hz
+  pos 5      1160149 cycles     0.6482 s @ 1789772 Hz
+  pos 6      1174149 cycles     0.6560 s @ 1789772 Hz
+  pos 7      1187831 cycles     0.6637 s @ 1789772 Hz
+  pos 8      1209048 cycles     0.6755 s @ 1789772 Hz
+  pos 9      1223139 cycles     0.6834 s @ 1789772 Hz
+  pos 10     1237153 cycles     0.6912 s @ 1789772 Hz
+  pos 11     1250455 cycles     0.6987 s @ 1789772 Hz
+  pos 12     1264220 cycles     0.7064 s @ 1789772 Hz
+  pos 13     1278023 cycles     0.7141 s @ 1789772 Hz
+  pos 14     1292195 cycles     0.7220 s @ 1789772 Hz
+  pos 15     1305263 cycles     0.7293 s @ 1789772 Hz
+  pos 16     1326867 cycles     0.7414 s @ 1789772 Hz
+  pos 17     1340583 cycles     0.7490 s @ 1789772 Hz
+  pos 18     1354566 cycles     0.7568 s @ 1789772 Hz
+  TOTAL     23199514 cycles    12.9623 s   (mean 1221027 cycles/token)
+
+tokens profiled: 19   rows/token: 1408   nnz/token: 51299
+
+first token (pos 0)
+  total (profiled)           1126294 cycles
+  marker overhead              33816 cycles  (2818 markers x 12)
+  ternary gather_row          838367 cycles  ( 74.4%)  over 1408 rows
+  attention                    40000 cycles  (  3.6%)
+  everything else             214111 cycles  ( 19.0%)
+  --> ternary kernel: 16.34 cycles per MAC (nnz = 51299)
+  --> ternary kernel: 8.19 cycles per WEIGHT (102400 weights)
+
+last token (pos 18)
+  total (profiled)           1388715 cycles
+  marker overhead              33816 cycles  (2818 markers x 12)
+  ternary gather_row          838327 cycles  ( 60.4%)  over 1408 rows
+  attention                   302522 cycles  ( 21.8%)
+  everything else             214050 cycles  ( 15.4%)
+  --> ternary kernel: 16.34 cycles per MAC (nnz = 51299)
+  --> ternary kernel: 8.19 cycles per WEIGHT (102400 weights)
+
+Measured over the real 19-token trajectory, sign-separated lists:
+  block      blocks  max |v|    signed >127    biased >255
+  16          84455      191              0              0
+  32          56981      344              0           5477
+
+Worst case by construction: block*14 biased, block*7 signed.
+  block 16 -> 224 biased / 112 signed : both provably in range
+  block 32 -> 448 biased / 224 signed : both provably OUT of range
