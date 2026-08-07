@@ -1,0 +1,76 @@
+seed token 1 = 'b'
+  pos  rom   rom sym  host  host sym
+  0    8     'i'      8     'i'      ok
+  1    6     'g'      6     'g'      ok
+  2    26    ' '      26    ' '      ok
+  3    5     'f'      5     'f'      ok
+  4    17    'r'      17    'r'      ok
+  5    8     'i'      8     'i'      ok
+  6    59    'en'     59    'en'     ok
+  7    3     'd'      3     'd'      ok
+  8    18    's'      18    's'      ok
+  9    27    '.'      27    '.'      ok
+  10   38    ' s'     38    ' s'     ok
+  11   36    'he '    36    'he '    ok
+  12   43    'wa'     43    'wa'     ok
+  13   18    's'      18    's'      ok
+  14   38    ' s'     38    ' s'     ok
+  15   14    'o'      14    'o'      ok
+  16   26    ' '      26    ' '      ok
+  17   51    'ha'     51    'ha'     ok
+  18   15    'p'      15    'p'      ok
+  ROM  text: 'big friends. she was so hap'
+  HOST text: 'big friends. she was so hap'
+  identical: True   over 19 tokens
+
+seed token 26 = ' '
+  pos  rom   rom sym  host  host sym
+  0    2     'c'      2     'c'      ok
+  1    0     'a'      0     'a'      ok
+  2    12    'm'      12    'm'      ok
+  3    33    'e '     33    'e '     ok
+  4    19    't'      19    't'      ok
+  5    14    'o'      14    'o'      ok
+  6    26    ' '      26    ' '      ok
+  7    15    'p'      15    'p'      ok
+  8    11    'l'      11    'l'      ok
+  9    0     'a'      0     'a'      ok
+  10   24    'y'      24    'y'      ok
+  11   61    'ing'    61    'ing'    ok
+  12   26    ' '      26    ' '      ok
+  13   22    'w'      22    'w'      ok
+  14   54    'it'     54    'it'     ok
+  15   7     'h'      7     'h'      ok
+  16   26    ' '      26    ' '      ok
+  17   7     'h'      7     'h'      ok
+  18   8     'i'      8     'i'      ok
+  ROM  text: ' came to playing with hi'
+  HOST text: ' came to playing with hi'
+  identical: True   over 19 tokens
+
+seed token 40 = ' the '
+  pos  rom   rom sym  host  host sym
+  0    18    's'      18    's'      ok
+  1    19    't'      19    't'      ok
+  2    17    'r'      17    'r'      ok
+  3    4     'e'      4     'e'      ok
+  4    33    'e '     33    'e '     ok
+  5    19    't'      19    't'      ok
+  6    14    'o'      14    'o'      ok
+  7    26    ' '      26    ' '      ok
+  8    5     'f'      5     'f'      ok
+  9    17    'r'      17    'r'      ok
+  10   8     'i'      8     'i'      ok
+  11   59    'en'     59    'en'     ok
+  12   3     'd'      3     'd'      ok
+  13   18    's'      18    's'      ok
+  14   45    '. '     45    '. '     ok
+  15   36    'he '    36    'he '    ok
+  16   43    'wa'     43    'wa'     ok
+  17   18    's'      18    's'      ok
+  18   38    ' s'     38    ' s'     ok
+  ROM  text: ' the stree to friends. he was s'
+  HOST text: ' the stree to friends. he was s'
+  identical: True   over 19 tokens
+
+ALL SEEDS EXACT OVER 16+ TOKENS: True
