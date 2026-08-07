@@ -703,3 +703,214 @@ seed token 40 : max|dW| = 0,  TOKENS MATCHING: 19/19 -> EXACT
 
 57 generated tokens, every one bit-identical between the 6502 and the
 exact-integer specification.
+
+## THE FINAL CARTRIDGE
+
+`runs/final_av2_bpe64_tau0.75.npz` - bpe64, TWN tau = 0.75, `AV_SHIFT = 2`,
+60,000 steps at batch 192 (about 230 million training tokens, ~19 epochs of
+the 12.24 M-token fit split), 16 minutes on an RTX 4070 Laptop.
+
+| | |
+|---|---|
+| fit / val | 2.0431 / **2.0546** nats/token = **1.4133 nats/char** |
+| uniform baseline | 4.1589 nats/token = 2.861 nats/char |
+| weights | 102,400 ternary |
+| **nonzero weights** | **52,207 (density 0.5098)** |
+| stream image | 57,344 bytes, 7 banks, 6 bank crossings/token |
+| ROM | 90,128 bytes (80 KB PRG + header + CHR) |
+
+### max\|dW\| = 0
+
+The npz the trainer wrote, decoded back out of `stream.bin` + `headers.bin`
+using only the documented stream format (not the packer's own code path):
+
+```
+matrix       shape        nnz        max|dW|
+L0_Wq        64x64        2029       0
+...          (all 19 matrices)       0
+head         64x64        2030       0
+
+embed.bin  max|d| = 0   over 4096 values
+pos.bin    max|d| = 0   over 1280 values
+weights    102400   nonzero 52207   density 0.5098
+
+max|dW| = 0   over 102400 ternary weights -> EXACT
+```
+
+The check also validates the derived `d7 = -7*(n_pos - n_neg)` header constant
+on every one of the 1,408 rows, that no row straddles a bank, and that each
+row's `+1` and `-1` index lists are disjoint.
+
+### ROM == host, 57 tokens over three seeds
+
+MAME 0.277 `nes` driver, cycle-exact write tap. Full transcripts in
+`out/FINAL_VERIFICATION.txt` and `out/FINAL_SIDEBYSIDE.txt`.
+
+```
+seed token 1 = 'b'
+  pos  rom   rom sym  host  host sym
+  0    8     'i'      8     'i'      ok
+  1    6     'g'      6     'g'      ok
+  2    26    ' '      26    ' '      ok
+  3    5     'f'      5     'f'      ok
+  4    17    'r'      17    'r'      ok
+  5    8     'i'      8     'i'      ok
+  6    59    'en'     59    'en'     ok
+  7    3     'd'      3     'd'      ok
+  8    18    's'      18    's'      ok
+  9    27    '.'      27    '.'      ok
+  10   38    ' s'     38    ' s'     ok
+  11   36    'he '    36    'he '    ok
+  12   43    'wa'     43    'wa'     ok
+  13   18    's'      18    's'      ok
+  14   38    ' s'     38    ' s'     ok
+  15   14    'o'      14    'o'      ok
+  16   26    ' '      26    ' '      ok
+  17   51    'ha'     51    'ha'     ok
+  18   15    'p'      15    'p'      ok
+  ROM  text: 'big friends. she was so hap'
+  HOST text: 'big friends. she was so hap'
+  identical: True   over 19 tokens
+```
+
+| seed token | tokens | result | ROM text |
+|---|---|---|---|
+| 1 `'b'` | 19/19 | EXACT | `big friends. she was so hap` |
+| 26 `' '` | 19/19 | EXACT | `' came to playing with hi'` |
+| 40 `' the '` | 19/19 | EXACT | `' the stree to friends. he was s'` |
+
+**57 generated tokens, every one bit-identical.** 19 per seed clears the 16+
+bar; a 3-token check would have passed three genuinely broken changes in this
+project, including this ROM's own Duff's-device bug, which produced the right
+token at positions 0 and 1 while layer 0 was already wrong at position 0.
+
+### WHAT IT ACTUALLY SAYS
+
+Greedy argmax with ties to the lowest index, which is exactly what `rom/nn.s`
+does, so these are the strings the cartridge produces. The ROM free-runs from
+a single seed token - that token is the entire prompt. Full 64-seed survey in
+`out/FINAL_SURVEY.txt`; a fair sample:
+
+```
+seed  1 'b'      -> 'big friends. she was so hap'
+seed  3 'd'      -> 'day, but the strange. he was a'
+seed  4 'e'      -> 'elly. she was so excited. one '
+seed  7 'h'      -> 'him came and said, "i hav'
+seed  9 'j'      -> 'just. he said, "i have to '
+seed 12 'm'      -> 'mall with her mommy. she sa'
+seed 14 'o'      -> 'or notice upon a time, ther'
+seed 20 'u'      -> 'up with him friends. he wa'
+seed 22 'w'      -> 'with her mom friends. he sai'
+seed 26 ' '      -> ' came to playing with hi'
+seed 28 ','      -> ', she said, "that's a proud '
+seed 30 "'"      -> ''t mommy said, "i didn't '
+seed 31 '!'      -> '! he was so happy. she was so '
+seed 34 ' t'     -> ' they were saw from the sky. she '
+seed 36 'he '    -> 'he said, "i was so happy. s'
+seed 42 'in'     -> 'in the streess. she was so exc'
+seed 43 'wa'     -> 'was so happy and said, "i hav'
+seed 51 'ha'     -> 'hat it was so excited. she was s'
+seed 57 'her'    -> 'her friends. she was so happy'
+seed 58 ', '     -> ', he saw a big dad and said'
+seed 59 'en'     -> 'enture. he was so happy and sai'
+```
+
+And with a multi-token prompt (**host only** - the ROM has no prompt path):
+
+```
+'once upon a time, ' -> 'once upon a time, but she sai'
+'the little girl '   -> 'the little girl friends. on'
+'he said, '          -> 'he said, "i was so happy. s'
+'lily was very '     -> 'lily was very playing with her'
+```
+
+**Assessment, plainly.** This is coherent short English at the phrase level and
+not at the sentence level. Spelling is essentially correct - `friends`,
+`excited`, `mommy`, `happy`, `playing`, `proud` - punctuation and quoting are
+used correctly, `he`/`she` agreement holds within a clause, and several
+outputs are grammatical all the way through: `' he was so happy. she was so '`,
+`', he saw a big dad and said'`, `'hat it was so excited. she was s'`. There
+are also clear failures: `streess`, `stoppped`, `riess` are non-words,
+`'or notice upon a time'` is a mangled `once upon a time`, and the model leans
+heavily on a handful of TinyStories cliches (`he said, "i have to`, `was so
+happy`, `friends`). It does not plan past about a clause, which is exactly
+what a 20-token context and three 64-wide layers should be expected to do.
+
+It is not a language model in any useful sense. It is 102,400 ternary weights
+producing recognisable, mostly-correctly-spelled English on a 1.79 MHz 6502,
+and that is the claim being made.
+
+### CYCLES PER TOKEN, TRAINED vs RANDOM
+
+| | random init | trained (final) | change |
+|---|---|---|---|
+| nonzero weights | 51,299 | **52,207** | +908 (+1.8%) |
+| density | 0.5010 | 0.5098 | +0.0088 |
+| position 0 | 1,091,722 | 1,101,864 | |
+| position 18 | 1,354,566 | 1,364,891 | |
+| **mean over 19 tokens** | **1,221,027** | **1,233,099** | **+12,072 (+0.99%)** |
+| seconds per token @ 1789772 Hz | 0.6822 | **0.6890** | |
+| ternary kernel | 16.34 cycles/MAC | **16.30 cycles/MAC** | |
+| ternary kernel | 8.19 cycles/weight | **8.31 cycles/weight** | |
+
+A zero weight costs literally nothing in this kernel - it is absent from both
+index lists - so cost tracks **nnz**, not weight count, and training moved nnz
+by 1.8%. The marginal cost works out at `12,072 / 908 = 13.3` cycles per extra
+nonzero, against the 16.30 cycles/MAC average, which is what you would expect:
+the average includes per-row fold and setup amortised over the row, and an
+extra weight inside an existing block pays only the gather.
+
+The tau knob is a direct speed/quality dial and it was measured, not guessed:
+
+| tau | nnz | mean cycles/token (extrapolated at 13.3/nnz) | val/char |
+|---|---|---|---|
+| 1.50 | 22,230 | ~832,000 | 1.7396 |
+| 1.25 | 31,538 | ~956,000 | 1.6410 |
+| 1.00 | 42,360 | ~1,100,000 | 1.5734 |
+| **0.75** | **55,711** | **1,233,099 (measured)** | **1.5432** |
+| 0.50 | 69,002 | ~1,410,000 - does not fit the ROM | 1.5537 |
+
+(The 12,000-step column; the shipped model is the 60,000-step version of the
+tau = 0.75 row.) Those cycle figures except the measured one are the honest
+label: extrapolations from one measured marginal rate, not measurements.
+
+### Block sizes on the shipped weights
+
+| block | blocks | max value | signed >127 | biased >255 |
+|---|---|---|---|---|
+| 16 | 86,507 | **199** | 0 | **0** |
+| 32 | 56,715 | 383 | 26 | **5,458 (9.6%)** |
+
+Block 16 remains provably and observably safe. Block 32 remains refuted.
+
+### Attention range, before and after
+
+| | AV_SHIFT=4 (was) | AV_SHIFT=2 (shipped) |
+|---|---|---|
+| layer-0 attention levels used | 2 (`-1`, `0`) | **8** (`-4..3`) |
+| distribution | 49.1% / 50.9% | 3.3 / 2.8 / 11.6 / 19.9 / 24.6 / 20.1 / 6.9 / 10.8 % |
+| `K_SHIFT=2` saturation | 27.24% | 31.67% |
+| `W2_SHIFT=3` saturation | 8.39% | 13.35% |
+
+### What could not be done
+
+* **Generation is capped at 19 tokens (~28 characters).** `T = 20` is set by
+  the KV cache fitting one 8 KB PRG-RAM bank, and the positional table has
+  exactly 20 rows. There is no sliding window, on the ROM or in the host
+  reference, so nothing here shows the model over a paragraph.
+* **The ROM cannot be prompted.** It free-runs from one seed token. The
+  multi-token prompts above are host-only and are labelled as such everywhere
+  they appear. Adding a prompt path is a small ROM change that was not made.
+* **Greedy argmax only.** No temperature, no sampling. That is what the
+  cartridge does, so it is what is reported; sampled text would read better
+  and would not be what the hardware produces.
+* **No search over `K_SHIFT` or `W2_SHIFT`.** Only `AV_SHIFT` was laddered.
+  `K_SHIFT = 2` saturates 31.67% of the time, which is high enough to be worth
+  a ladder of its own, and that was not run.
+* **The float-weight control does not have a stable sign.** At `AV_SHIFT = 4`
+  float weights beat ternary by 0.055 nats/char; at `AV_SHIFT = 1` they *lost*
+  by 0.061. So "ternarisation costs about 3.5%" is only safe to say at the
+  shift it was measured at, and weight precision is not the dominant term at
+  this scale either way.
+* **One corpus.** TinyStories only. No check that the charset choice
+  generalises to a different register of English.
