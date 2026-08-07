@@ -50,6 +50,16 @@ MMC5_PRGA000 = $5115
 MMC5_PRGC000 = $5116
 MMC5_PRGE000 = $5117
 
+.macro PMARK v
+.ifdef PROFILE
+    stx xsave2              ; 3
+    ldx #v                  ; 2
+    stx MARKER              ; 4
+    ldx xsave2              ; 3   = 12 cycles, A/Y/carry untouched
+.endif
+.endmacro
+PMARK_COST = 12
+
 ; ---- fixed pages in system RAM (constants, NOT bss - see nn.cfg) ----------
 ACTB   = $0400              ; biased activation input page (the adc target)
 OUTB   = $0500              ; signed matmul output, up to 128 entries
@@ -88,6 +98,7 @@ di:      .res 1
 sptr:    .res 2
 kptr:    .res 2
 xsave:   .res 1
+xsave2:  .res 1
 cnt:     .res 1
 bacc:    .res 1
 scL:     .res 1
@@ -485,7 +496,9 @@ do_layer:
     sta kvsel
     jsr post_kv
 
+    PMARK 30
     jsr attention
+    PMARK 31
 .ifdef DEBUG
     jsr dbg_dump_attn
 .endif
@@ -537,7 +550,9 @@ matmul:
     sta di
 @row:
     jsr read_header
+    PMARK 20
     jsr gather_row
+    PMARK 21
     jsr do_requant
     ldy di
     sta OUTB,y
@@ -608,22 +623,24 @@ gather_row:
 
 ; --- gather one list of length A ------------------------------------------
 gather:
-    tay
+    tay                     ; Y = list length, and stays valid for the tables
     beq @empty
     lda tbl_blkcnt,y
     sta blkcnt
-    lda tbl_step,y
-    sta blkstep             ; length of the FIRST (possibly partial) block
-    lda tbl_entoff,y
-    sta t0                  ; (BLOCKSZ - step) * 6
-    jsr adv_x               ; X and wchain now point one PAST this block
-    lda t0
+    lda tbl_entoff,y        ; (BLOCKSZ - first block length) * 6
     clc
     adc wchain
     sta wep
     lda wchain+1
     adc #0
     sta wep+1
+    txa                     ; X += first block length, chain follows on a wrap
+    clc
+    adc tbl_step,y
+    tax
+    bcc @go
+    jsr chain_bump          ; bumps wchain AND wep
+@go:
     lda #0
     clc                     ; the chain's first adc must not inherit a carry
     jmp (wep)
@@ -639,9 +656,13 @@ fold_add:
 @1:
     dec blkcnt
     beq gather_done
-    lda #BLOCKSZ
-    sta blkstep
-    jsr adv_x
+    txa
+    clc
+    adc #BLOCKSZ
+    tax
+    bcc @2
+    jsr chain_next
+@2:
     lda #0
     clc
     jmp (wchain)
@@ -657,9 +678,13 @@ fold_sub:
     sta totH
     dec blkcnt
     beq gather_done
-    lda #BLOCKSZ
-    sta blkstep
-    jsr adv_x
+    txa
+    clc
+    adc #BLOCKSZ
+    tax
+    bcc @2
+    jsr chain_next
+@2:
     lda #0
     clc
     jmp (wchain)
@@ -669,20 +694,25 @@ fold_sub:
 gather_done:
     rts
 
-; advance X (and the chain, on an 8-bit wrap) by blkstep
-adv_x:
-    txa
-    clc
-    adc blkstep
-    tax
-    bcc @nowrap
+chain_next:                 ; wchain += CHAIN_SIZE
     lda wchain
     clc
     adc #CHAIN_SIZE
     sta wchain
-    bcc @nowrap
+    bcc @1
     inc wchain+1
-@nowrap:
+@1:
+    rts
+
+chain_bump:                 ; wchain += CHAIN_SIZE and wep += CHAIN_SIZE
+    jsr chain_next
+    lda wep
+    clc
+    adc #CHAIN_SIZE
+    sta wep
+    bcc @1
+    inc wep+1
+@1:
     rts
 
 ; ===========================================================================
@@ -1238,7 +1268,9 @@ head_argmax:
     sta rowcnt
 @row:
     jsr read_header
+    PMARK 20
     jsr gather_row
+    PMARK 21
     ; is tot > best ?  (signed 16-bit)
     lda totH
     eor #$80
