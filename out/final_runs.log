@@ -10,3 +10,20 @@ final_charset_tau0.75        step     1  fit 7.9547  val 7.9755  density 0.5503 
 final_charset_tau0.75        step 10000  fit 1.7868  val 1.7897  density 0.5380  159s
 final_charset_tau0.75        step 20000  fit 1.6915  val 1.7046  density 0.5273  318s
 final_charset_tau0.75        step 30000  fit 1.6623  val 1.6697  density 0.5208  475s
+final_charset_tau0.75        step 40000  fit 1.6558  val 1.6551  density 0.5143  633s
+final_charset_tau0.75        step 50000  fit 1.6435  val 1.6280  density 0.5148  790s
+final_charset_tau0.75        step 60000  fit 1.5019  val 1.5136  density 0.5154  948s
+FINAL final_charset_tau0.75    fit 1.5052  val 1.5031  (uniform 4.1589)  nnz 52779/102400 = 0.5154
+ctl_fp32_lr1e-3              step     1  fit 50575.0148  val 50758.8676  density 0.4248  0s
+ctl_fp32_lr1e-3              step  4000  fit 3.9493  val 3.9475  density 0.4251  29s
+ctl_fp32_lr1e-3              step  8000  fit 3.9371  val 3.9413  density 0.4252  58s
+ctl_fp32_lr1e-3              step 12000  fit 3.8726  val 3.8769  density 0.4252  87s
+FINAL ctl_fp32_lr1e-3          fit 3.8758  val 3.8747  (uniform 4.1589)  nnz 43543/102400 = 0.4252
+ctl_fp32_lr3e-4              step     1  fit 50588.7570  val 50773.5848  density 0.4248  0s
+ctl_fp32_lr3e-4              step  4000  fit 3.9545  val 3.9526  density 0.4248  28s
+ctl_fp32_lr3e-4              step  8000  fit 3.9197  val 3.9298  density 0.4250  55s
+ctl_fp32_lr3e-4              step 12000  fit 3.8919  val 3.8973  density 0.4250  82s
+FINAL ctl_fp32_lr3e-4          fit 3.8960  val 3.8953  (uniform 4.1589)  nnz 43523/102400 = 0.4250
+ctl_floatw_tau0.75           step     1  fit 12.8511  val 12.8990  density 0.5503  1s
+ctl_floatw_tau0.75           step  4000  fit 2.6750  val 2.6695  density 0.5502  62s
+ctl_floatw_tau0.75           step  8000  fit 2.4500  val 2.4433  density 0.5502  123s
