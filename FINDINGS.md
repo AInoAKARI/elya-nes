@@ -348,3 +348,60 @@ byte is one of 0/64/128/192 and the attention loop's `lda (kptr),y` with
 page**, so 64-byte alignment gives the same guarantee as 256-byte alignment at
 a quarter of the memory. This is a refinement of the guidance, not a
 contradiction of it.
+
+## 8. Summary and limitations
+
+### What was reproduced or established
+
+| | |
+|---|---|
+| instrument resolution | 1 CPU cycle = 558 730 385 770 as = 558.73 ns, individual cycles resolved |
+| reproducibility | bit-identical over 3 runs **including absolute timestamps**, for every ROM |
+| clock | **derived**: 1,789,772 Hz, error -1.7e-11 against a 12-cycle reference |
+| datasheet calibration | **28/28, 0 mismatches** |
+| branch placement | verified from **raw ROM bytes**, plus link-time asserts |
+| primitives | **19/19 match the prior run**, plus MMC1 30 / MMC3 12+6 on real carts |
+| PRG-RAM | 32 KB in 4 banks at `$5113 = 4..7`; declaring 64 or 128 KB still yields 4 |
+| bank crossings per token | **6** = 36 cycles = 0.003% |
+| kernel | **10.688 cycles/MAC** asymptotic, 16.34 in situ, 8.19 per weight |
+| exactness | **19/19 tokens exact** vs the host reference; intermediates exact too |
+| cycles/token | mean **1,219,518** = **0.681 s** at 1.789773 MHz |
+| independent emulator | ares 147: identical tokens, 32,768-byte battery file |
+
+### Negatives, plainly
+
+- **The 8-cycle primitive is not achievable in a real kernel.** Measured
+  asymptotic is 10.688 and the model's actual figure is 16.34, because its
+  index lists average only 18.2 entries and each list pays a 49-cycle
+  intercept plus a 43-cycle fold per 16-entry block. The primitive is a real
+  lower bound, not a design target.
+- **Block 32 is wrong for this formulation** and would corrupt 9.6% of blocks.
+  The prior "block 32 never saturates" result does not transfer to a
+  sign-separated kernel.
+- **Attention costs ~23-25 cycles/MAC** and is not optimised. It hits the same
+  structural wall as the discarded 4-bit-weight LUT: building the multiply
+  table index needs `ORA`, there is no `ORA` to X or Y, so the accumulator
+  cannot stay in A. At full context it is 21.8% of a token.
+- **Two of my own bugs produced plausible output**: the Duff's-device entry bug
+  gave the right token at positions 0 and 1 while layer 0 was already wrong at
+  position 0, and the bank-boundary bug hung rather than mis-answered. Neither
+  would have been caught by a short check.
+
+### What I could not do
+
+- **No second emulator with a usable timing hook.** ares has no scripting
+  interface for Famicom, so its cross-check is functional only (via the
+  battery file), not cycle-level. No third NES emulator with Lua (fceux,
+  Mesen) is installed on this machine. All timing figures rest on MAME alone,
+  mitigated by the 28/28 datasheet calibration and the branch-byte check.
+- **The model is randomly initialised, not trained.** This port is verified for
+  *exactness* and *cycle cost*, not for output quality. The prior run's
+  training ablation (4-bit activations being load-bearing, 8-bit activations
+  with an int8 accumulator being destroyed) was taken as a design input and
+  was not re-measured - retraining was out of scope here.
+- **The self-modifying RAM-resident kernel variant was not built.** The 32
+  ROM-resident page chains reached 10.688 cycles/MAC without self-modifying
+  code; an SMC variant was estimated at roughly the same cost and was not
+  worth the risk, but that estimate is *not* a measurement.
+- **The `.sav` cross-check does not prove ares's cycle timing**, only that the
+  ROM computes the same answer under a different CPU implementation.

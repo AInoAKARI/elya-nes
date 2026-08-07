@@ -75,9 +75,12 @@ def main():
     print("\nPRG-RAM BANKS: header DECLARES 8 x 8 KB = 64 KB.")
     print("  wrote $A0+b to bank b for b=0..7, then read every bank back:")
     print("  " + " ".join("b%d=$%02X" % (i, v) for i, v in enumerate(rb)))
-    distinct = len(set(rb))
-    print("  distinct values -> %d real 8 KB banks = %d KB of PRG-RAM"
-          % (distinct, distinct * 8))
+    lo = len(set(rb[0:4]))
+    hi = len(set(rb[4:8]))
+    print("  $5113 = 0..3 -> %d distinct region(s)  (MMC5's separate first chip)" % lo)
+    print("  $5113 = 4..7 -> %d distinct 8 KB banks = %d KB of BANKED PRG-RAM"
+          % (hi, hi * 8))
+    print("  -> the port uses $5113 = 4..7")
     return 1 if (bad or not sig_ok) else 0
 
 
