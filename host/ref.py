@@ -199,6 +199,17 @@ class Model:
         quantisation, not two that happen to agree."""
         import numpy as np
         z = np.load(path)
+        if "_shifts" in z:
+            want = [K_SHIFT, W2_SHIFT, AV_SHIFT, SM_SHIFT]
+            got = [int(v) for v in z["_shifts"]]
+            if got != want:
+                raise SystemExit(
+                    "%s was trained at shifts K/W2/AV/SM = %s but this "
+                    "reference is configured for %s.  Set NES_K_SHIFT / "
+                    "NES_W2_SHIFT / NES_AV_SHIFT / NES_SM_SHIFT to match, or "
+                    "retrain.  (Loading it anyway gives a plausible-looking "
+                    "model that generates rubbish - it happened.)"
+                    % (path, got, want))
         m = cls.__new__(cls)
         m.emb = [[int(v) for v in row] for row in z["emb"]]
         m.pos = [[int(v) for v in row] for row in z["pos"]]

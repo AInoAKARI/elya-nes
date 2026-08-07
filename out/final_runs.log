@@ -4,3 +4,9 @@ final_bpe64_tau0.75          step 20000  fit 2.2956  val 2.2836  density 0.5244 
 final_bpe64_tau0.75          step 30000  fit 2.2902  val 2.2898  density 0.5204  478s
 final_bpe64_tau0.75          step 40000  fit 2.2409  val 2.2542  density 0.5201  637s
 final_bpe64_tau0.75          step 50000  fit 2.2173  val 2.2182  density 0.5192  796s
+final_bpe64_tau0.75          step 60000  fit 2.0644  val 2.0780  density 0.5219  955s
+FINAL final_bpe64_tau0.75      fit 2.0728  val 2.0736  (uniform 4.1589)  nnz 53439/102400 = 0.5219
+final_charset_tau0.75        step     1  fit 7.9547  val 7.9755  density 0.5503  1s
+final_charset_tau0.75        step 10000  fit 1.7868  val 1.7897  density 0.5380  159s
+final_charset_tau0.75        step 20000  fit 1.6915  val 1.7046  density 0.5273  318s
+final_charset_tau0.75        step 30000  fit 1.6623  val 1.6697  density 0.5208  475s

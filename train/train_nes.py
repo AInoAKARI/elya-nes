@@ -134,6 +134,11 @@ def main():
     vl = evaluate(model, val, a.batch, M.T, 60, gev, scale)
     nnz, tot = sparsity(model)
     z = model.export_int()
+    # Stamp the requantise shifts INTO the weights file.  A model trained at
+    # one AV_SHIFT and evaluated at another produces a lower loss and visibly
+    # worse text with nothing anywhere raising, which happened here once.
+    z["_shifts"] = np.array([M.K_SHIFT, M.W2_SHIFT, M.AV_SHIFT, M.SM_SHIFT],
+                            dtype=np.int16)
     np.savez(os.path.join(a.out, name + ".npz"), **z)
     meta = dict(name=name, vocab=a.vocab, tau=a.tau, mode=a.mode, quant=a.quant,
                 k_shift=M.K_SHIFT, w2_shift=M.W2_SHIFT, av_shift=M.AV_SHIFT,
