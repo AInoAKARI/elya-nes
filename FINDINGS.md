@@ -726,9 +726,12 @@ using only the documented stream format (not the packer's own code path):
 
 ```
 matrix       shape        nnz        max|dW|
-L0_Wq        64x64        2029       0
+L0_Wq        64x64        2108       0
+L0_Wk        64x64        2117       0
+L0_Wv        64x64        2114       0
 ...          (all 19 matrices)       0
-head         64x64        2030       0
+L2_W2        64x128       3912       0
+head         64x64        2306       0
 
 embed.bin  max|d| = 0   over 4096 values
 pos.bin    max|d| = 0   over 1280 values
@@ -736,6 +739,11 @@ weights    102400   nonzero 52207   density 0.5098
 
 max|dW| = 0   over 102400 ternary weights -> EXACT
 ```
+
+(Full transcript: `out/FINAL_MAXDW.txt`. The two per-matrix nnz figures first
+written into this table were recalled rather than read, and were wrong by ~4%
+and ~12%; they are now copied from the transcript. Recording that because it
+is precisely the failure this repo keeps guarding against.)
 
 The check also validates the derived `d7 = -7*(n_pos - n_neg)` header constant
 on every one of the 1,408 rows, that no row straddles a bank, and that each

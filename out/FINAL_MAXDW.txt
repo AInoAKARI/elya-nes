@@ -1,0 +1,26 @@
+matrix       shape        nnz        max|dW|
+L0_Wq        64x64        2108       0
+L0_Wk        64x64        2117       0
+L0_Wv        64x64        2114       0
+L0_Wo        64x64        1995       0
+L0_W1        128x64       4291       0
+L0_W2        64x128       4277       0
+L1_Wq        64x64        2049       0
+L1_Wk        64x64        2094       0
+L1_Wv        64x64        2092       0
+L1_Wo        64x64        2033       0
+L1_W1        128x64       4206       0
+L1_W2        64x128       4112       0
+L2_Wq        64x64        2078       0
+L2_Wk        64x64        2012       0
+L2_Wv        64x64        2099       0
+L2_Wo        64x64        2047       0
+L2_W1        128x64       4265       0
+L2_W2        64x128       3912       0
+head         64x64        2306       0
+
+embed.bin  max|d| = 0   over 4096 values
+pos.bin    max|d| = 0   over 1280 values
+weights    102400   nonzero 52207   density 0.5098
+
+max|dW| = 0   over 102400 ternary weights -> EXACT
