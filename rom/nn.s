@@ -37,6 +37,17 @@ NTOKGEN  = 19               ; >= 16, the verification bar
 SEEDTOK  = 1
 .endif
 
+; number of 8 KB banks the weight stream occupies.  7 is what a 50%-dense
+; model needs; a denser trained model needs more, so this is a build define
+; and rom/nn9.cfg is the matching linker config.  The fixed windows sit
+; immediately after the stream banks, so their bank numbers derive from it.
+.ifndef NSTREAM
+NSTREAM  = 7
+.endif
+EMBBANK  = $80 + NSTREAM          ; $A000 window: embedding + positions
+TBLBANK  = $80 + NSTREAM + 1      ; $C000 window: row headers + tables
+CODEBANK = $80 + NSTREAM + 2      ; $E000 window: code, chains, vectors
+
 BIASV    = 7
 BLOCKSZ  = 16
 MULBIAS  = 13
@@ -137,7 +148,7 @@ res_ntok:   .res 1
 ; ===========================================================================
 .segment "HEADER"
     .byte "NES", $1A
-    .byte 5                 ; 5 x 16 KB = 80 KB PRG (ten 8 KB banks)
+    .byte (NSTREAM + 3 + 1) / 2   ; 16 KB units: NSTREAM + emb + tbl + code
     .byte 1
     .byte $52               ; mapper 5, battery
     .byte $00
@@ -158,6 +169,12 @@ res_ntok:   .res 1
     .incbin "out/model/stream.bin", $A000, $2000
 .segment "STREAM6"
     .incbin "out/model/stream.bin", $C000, $2000
+.if NSTREAM > 7
+.segment "STREAM7"
+    .incbin "out/model/stream.bin", $E000, $2000
+.segment "STREAM8"
+    .incbin "out/model/stream.bin", $10000, $2000
+.endif
 
 .segment "EMBED"
     .incbin "out/model/embed.bin"
@@ -238,11 +255,11 @@ reset:
     sta MMC5_RAMBANK
     lda #$80
     sta MMC5_PRG8000
-    lda #$87
+    lda #EMBBANK
     sta MMC5_PRGA000
-    lda #$88
+    lda #TBLBANK
     sta MMC5_PRGC000
-    lda #$89
+    lda #CODEBANK
     sta MMC5_PRGE000
 
     lda #0
