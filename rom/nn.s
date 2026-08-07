@@ -1,0 +1,1182 @@
+; ---------------------------------------------------------------------------
+; nn.s - ternary transformer forward pass on the RP2A03, MMC5, 80 KB PRG.
+;
+; The shape of the ternary inner loop is forced by the CPU (see DESIGN.md):
+; the accumulator can only stay in A if BOTH operands are reached through an
+; index register, which means the weight stream must be addressed absolutely.
+; Hence the 32 page-specialised gather chains at the top of the fixed bank -
+; one per 256-byte page of the $8000 weight window.
+;
+; Activations are stored biased (+7) so every partial sum is non-negative and
+; a block of 16 can never set the carry (16*14 = 224 < 256).  That is what
+; makes `ldy stream,x / adc actb,y` legal with no `clc` between elements.
+;
+; REGISTER CONTRACT: X holds the weight-stream offset for the whole of a
+; forward pass and must survive every subroutine.  Anything that needs X saves
+; it in `xsave` first.  Counts are passed in zero page, never in X.
+; ---------------------------------------------------------------------------
+
+.include "common.inc"
+.export reset
+.export res_tokens, res_ntok
+
+; ---- model shape (must match host/ref.py) ---------------------------------
+NVOCAB   = 64
+NDMODEL  = 64
+NLAYER   = 3
+NHEAD    = 2
+NDHEAD   = 32
+NFF      = 128
+NCTX     = 20
+NTOKGEN  = 19               ; >= 16, the verification bar
+
+BIASV    = 7
+BLOCKSZ  = 16
+MULBIAS  = 13
+
+HI2 = (8 << 2) - 1
+LO2 = <(-(7 << 2))
+HI3 = (8 << 3) - 1
+LO3 = <(-(7 << 3))
+HI4 = (8 << 4) - 1
+LO4 = <(-(7 << 4))
+
+MMC5_PRGMODE = $5100
+MMC5_RAMPRO1 = $5102
+MMC5_RAMPRO2 = $5103
+MMC5_RAMBANK = $5113
+MMC5_PRG8000 = $5114
+MMC5_PRGA000 = $5115
+MMC5_PRGC000 = $5116
+MMC5_PRGE000 = $5117
+
+; ---- fixed pages in system RAM (constants, NOT bss - see nn.cfg) ----------
+ACTB   = $0400              ; biased activation input page (the adc target)
+OUTB   = $0500              ; signed matmul output, up to 128 entries
+XVEC   = $0600              ; residual stream x[0..63], signed
+Q4HI   = $0640              ; (q & 15) << 4
+ATTV   = $0680              ; attention output, signed
+ACC8   = $06C0              ; 8-bit block accumulators for AV
+SCORL  = $0700
+SCORH  = $0720
+EXPE   = $0740
+P4HI   = $0760
+AVL    = $0780
+AVH    = $07C0
+
+EMBED   = $A000
+POSTAB  = $A000 + NVOCAB * NDMODEL
+HEADERS = $C000
+KVBASE  = $6000
+
+.zeropage
+wchain:  .res 2
+wep:     .res 2
+wfold:   .res 2
+rqp:     .res 2
+hptr:    .res 2
+hy:      .res 1
+totL:    .res 1
+totH:    .res 1
+blkcnt:  .res 1
+blkstep: .res 1
+npos:    .res 1
+nneg:    .res 1
+wbank:   .res 1
+rowcnt:  .res 1
+di:      .res 1
+sptr:    .res 2
+kptr:    .res 2
+xsave:   .res 1
+cnt:     .res 1
+bacc:    .res 1
+scL:     .res 1
+scH:     .res 1
+ph:      .res 1
+hbase:   .res 1
+hend:    .res 1
+curpos:  .res 1
+curlay:  .res 1
+curtok:  .res 1
+tcnt:    .res 1
+gi:      .res 1
+kvsel:   .res 1
+kvt:     .res 1
+blkn:    .res 1
+sumL:    .res 1
+sumH:    .res 1
+kk:      .res 1
+bestL:   .res 1
+bestH:   .res 1
+besti:   .res 1
+t0:      .res 1
+t1:      .res 1
+
+.segment "BSS"
+res_tokens: .res 32
+res_ntok:   .res 1
+
+; ===========================================================================
+.segment "HEADER"
+    .byte "NES", $1A
+    .byte 5                 ; 5 x 16 KB = 80 KB PRG (ten 8 KB banks)
+    .byte 1
+    .byte $52               ; mapper 5, battery
+    .byte $00
+    .byte 4                 ; 32 KB PRG-RAM (measured: 4 real banks)
+    .byte 0, 0, 0, 0, 0, 0, 0
+
+.segment "STREAM0"
+    .incbin "out/model/stream.bin", $0000, $2000
+.segment "STREAM1"
+    .incbin "out/model/stream.bin", $2000, $2000
+.segment "STREAM2"
+    .incbin "out/model/stream.bin", $4000, $2000
+.segment "STREAM3"
+    .incbin "out/model/stream.bin", $6000, $2000
+.segment "STREAM4"
+    .incbin "out/model/stream.bin", $8000, $2000
+.segment "STREAM5"
+    .incbin "out/model/stream.bin", $A000, $2000
+.segment "STREAM6"
+    .incbin "out/model/stream.bin", $C000, $2000
+
+.segment "EMBED"
+    .incbin "out/model/embed.bin"
+    .incbin "out/model/pos.bin"
+
+.segment "HEADERS"
+    .incbin "out/model/headers.bin"
+
+.segment "TABLES"
+    .align $100
+tbl_mul:    .incbin "out/model/tbl_mul.bin"
+    .align $100
+tbl_q2:     .incbin "out/model/tbl_q2.bin"
+    .align $100
+tbl_q3:     .incbin "out/model/tbl_q3.bin"
+    .align $100
+tbl_q4:     .incbin "out/model/tbl_q4.bin"
+    .align $100
+tbl_clamp:  .incbin "out/model/tbl_clamp.bin"
+    .align $100
+tbl_entoff: .incbin "out/model/tbl_entoff.bin"
+    .align $100
+tbl_blkcnt: .incbin "out/model/tbl_blkcnt.bin"
+    .align $100
+tbl_step:   .incbin "out/model/tbl_step.bin"
+tbl_exp:    .incbin "out/model/tbl_exp.bin"
+
+; ===========================================================================
+; 32 gather chains, one per page of the $8000 weight window.
+; ===========================================================================
+.segment "CHAINS"
+
+.macro GCHAIN pg
+    .repeat BLOCKSZ, k
+    ldy $8000 + pg * 256 + k, x
+    adc ACTB, y
+    .endrepeat
+    jmp (wfold)
+.endmacro
+
+.repeat 32, p
+    .ident (.sprintf ("gchain%02d", p)):
+    GCHAIN p
+.endrepeat
+
+CHAIN_SIZE = gchain01 - gchain00
+    .assert CHAIN_SIZE = BLOCKSZ * 6 + 3, error, "chain size changed"
+    .assert <wep <> $FF, error, "wep would hit the JMP-indirect page bug"
+    .assert <wchain <> $FF, error, "wchain would hit the JMP-indirect page bug"
+
+; ===========================================================================
+.segment "CODE"
+
+reset:
+    NES_INIT
+    lda #$03
+    sta MMC5_PRGMODE
+    lda #$02
+    sta MMC5_RAMPRO1
+    lda #$01
+    sta MMC5_RAMPRO2
+    lda #$04                ; PRG-RAM bank 4 (first of the four real banks)
+    sta MMC5_RAMBANK
+    lda #$80
+    sta MMC5_PRG8000
+    lda #$87
+    sta MMC5_PRGA000
+    lda #$88
+    sta MMC5_PRGC000
+    lda #$89
+    sta MMC5_PRGE000
+
+    lda #0
+    tax
+@clr:
+    sta $0000,x
+    sta $0200,x
+    sta $0400,x
+    sta $0500,x
+    sta $0600,x
+    sta $0700,x
+    inx
+    bne @clr
+    ; clear the KV cache
+    ldx #0
+@clrkv:
+    sta $6000,x
+    sta $6100,x
+    sta $6200,x
+    sta $6300,x
+    sta $6400,x
+    sta $6500,x
+    sta $6600,x
+    sta $6700,x
+    sta $6800,x
+    sta $6900,x
+    sta $6A00,x
+    sta $6B00,x
+    sta $6C00,x
+    sta $6D00,x
+    sta $6E00,x
+    sta $6F00,x
+    sta $7000,x
+    sta $7100,x
+    sta $7200,x
+    sta $7300,x
+    inx
+    bne @clrkv
+
+    lda #1
+    sta curtok
+    lda #0
+    sta curpos
+
+    ldx #254
+    stx MARKER              ; SYNC
+
+@loop:
+    MARKX M_BEGIN
+    jsr forward
+    MARKX M_END
+    ldx curpos
+    lda curtok
+    sta res_tokens,x
+    inc curpos
+    lda curpos
+    cmp #NTOKGEN
+    bcc @loop
+
+    lda #NTOKGEN
+    sta res_ntok
+    ldx #M_DONE
+    stx MARKER
+@hang:
+    jmp @hang
+
+; ===========================================================================
+; forward(): curtok, curpos -> curtok
+; ===========================================================================
+forward:
+    jsr embed_pos
+
+    lda #0
+    sta wbank
+    lda #$80
+    sta MMC5_PRG8000
+    jsr chain_reset         ; also sets X = 0
+    lda #<HEADERS
+    sta hptr
+    lda #>HEADERS
+    sta hptr+1
+    lda #0
+    sta hy
+    sta curlay
+@layer:
+    jsr do_layer
+    inc curlay
+    lda curlay
+    cmp #NLAYER
+    bcc @layer
+
+    lda #<XVEC
+    sta sptr
+    lda #>XVEC
+    sta sptr+1
+    lda #NDMODEL
+    sta cnt
+    jsr bias_copy
+    jsr head_argmax
+    rts
+
+; --- x = clamp(emb[tok] + pos[p]) ------------------------------------------
+embed_pos:
+    lda curtok
+    jsr row64_embed         ; sptr = EMBED + tok*64
+    lda sptr
+    sta kptr
+    lda sptr+1
+    sta kptr+1
+    lda curpos
+    jsr row64_pos           ; sptr = POSTAB + pos*64
+    ldy #0
+@l:
+    lda (kptr),y
+    clc
+    adc (sptr),y
+    tax
+    lda tbl_clamp,x
+    sta XVEC,y
+    iny
+    cpy #NDMODEL
+    bne @l
+    rts
+
+row64_embed:
+    pha
+    and #$03
+    tay
+    lda mul64lo,y
+    sta sptr
+    pla
+    lsr a
+    lsr a
+    clc
+    adc #>EMBED
+    sta sptr+1
+    rts
+
+row64_pos:
+    pha
+    and #$03
+    tay
+    lda mul64lo,y
+    sta sptr                ; <POSTAB is 0, so no low carry is possible
+    pla
+    lsr a
+    lsr a
+    clc                     ; lsr leaves C set - it MUST be cleared here
+    adc #>POSTAB
+    sta sptr+1
+    rts
+
+mul64lo:
+    .byte 0, 64, 128, 192
+
+lay40:
+    .byte 0, NCTX * 2, NCTX * 4
+
+; ===========================================================================
+; one transformer layer
+; ===========================================================================
+do_layer:
+    lda #<XVEC
+    sta sptr
+    lda #>XVEC
+    sta sptr+1
+    lda #NDMODEL
+    sta cnt
+    jsr bias_copy
+
+    jsr set_rq2
+    lda #NDMODEL
+    sta rowcnt
+    jsr matmul              ; Wq
+    jsr post_q
+
+    jsr set_rq2
+    lda #NDMODEL
+    sta rowcnt
+    jsr matmul              ; Wk
+    lda #0
+    sta kvsel
+    jsr post_kv
+
+    jsr set_rq2
+    lda #NDMODEL
+    sta rowcnt
+    jsr matmul              ; Wv
+    lda #1
+    sta kvsel
+    jsr post_kv
+
+    jsr attention
+
+    lda #<ATTV
+    sta sptr
+    lda #>ATTV
+    sta sptr+1
+    lda #NDMODEL
+    sta cnt
+    jsr bias_copy
+    jsr set_rq2
+    lda #NDMODEL
+    sta rowcnt
+    jsr matmul              ; Wo
+    jsr post_residual
+
+    jsr set_rq2
+    lda #NFF
+    sta rowcnt
+    jsr matmul              ; W1
+    jsr post_relu
+
+    jsr set_rq3
+    lda #NDMODEL
+    sta rowcnt
+    jsr matmul              ; W2
+    jsr post_residual
+    rts
+
+set_rq2:
+    lda #<requant_k2
+    sta rqp
+    lda #>requant_k2
+    sta rqp+1
+    rts
+set_rq3:
+    lda #<requant_k3
+    sta rqp
+    lda #>requant_k3
+    sta rqp+1
+    rts
+
+; ===========================================================================
+; matmul: rowcnt rows reading ACTB, writing signed bytes to OUTB
+; ===========================================================================
+matmul:
+    lda #0
+    sta di
+@row:
+    jsr read_header
+    jsr gather_row
+    jsr do_requant
+    ldy di
+    sta OUTB,y
+    inc di
+    dec rowcnt
+    bne @row
+    rts
+
+do_requant:
+    jmp (rqp)
+
+read_header:
+    ldy hy
+    lda (hptr),y
+    cmp #$FF
+    bne @ok
+    inc wbank
+    lda wbank
+    ora #$80
+    sta MMC5_PRG8000
+    jsr chain_reset         ; X = 0, chain back to page $80
+    jsr hdr_advance
+    ldy hy
+    lda (hptr),y
+@ok:
+    sta npos
+    iny
+    lda (hptr),y
+    sta nneg
+    iny
+    lda (hptr),y
+    sta totL
+    iny
+    lda (hptr),y
+    sta totH
+hdr_advance:
+    lda hy
+    clc
+    adc #4
+    sta hy
+    bne @done
+    inc hptr+1
+@done:
+    rts
+
+chain_reset:
+    lda #<gchain00
+    sta wchain
+    lda #>gchain00
+    sta wchain+1
+    ldx #0
+    rts
+
+gather_row:
+    lda #<fold_add
+    sta wfold
+    lda #>fold_add
+    sta wfold+1
+    lda npos
+    jsr gather
+    lda #<fold_sub
+    sta wfold
+    lda #>fold_sub
+    sta wfold+1
+    lda nneg
+    jsr gather
+    rts
+
+; --- gather one list of length A ------------------------------------------
+gather:
+    tay
+    beq @empty
+    lda tbl_blkcnt,y
+    sta blkcnt
+    lda tbl_step,y
+    sta blkstep
+    lda tbl_entoff,y
+    clc
+    adc wchain
+    sta wep
+    lda wchain+1
+    adc #0
+    sta wep+1
+    lda #0
+    clc                     ; the chain's first adc must not inherit a carry
+    jmp (wep)
+@empty:
+    rts
+
+fold_add:
+    clc
+    adc totL
+    sta totL
+    bcc @1
+    inc totH
+@1:
+    jsr adv_x
+    lda blkcnt
+    beq gather_done
+    lda #0
+    clc
+    jmp (wchain)
+
+fold_sub:
+    sta t0
+    sec
+    lda totL
+    sbc t0
+    sta totL
+    lda totH
+    sbc #0
+    sta totH
+    jsr adv_x
+    lda blkcnt
+    beq gather_done
+    lda #0
+    clc
+    jmp (wchain)
+
+; `gather` entered the chain with JMP, not JSR, so this rts unwinds straight
+; to gather_row - the return address gather's own jsr pushed is still there.
+gather_done:
+    rts
+
+adv_x:
+    txa
+    clc
+    adc blkstep
+    tax
+    bcc @nowrap
+    lda wchain
+    clc
+    adc #CHAIN_SIZE
+    sta wchain
+    bcc @nowrap
+    inc wchain+1
+@nowrap:
+    lda #BLOCKSZ
+    sta blkstep
+    dec blkcnt
+    rts
+
+; ===========================================================================
+; requantise: totL/totH -> A = signed 4-bit.  Does not touch X.
+; ===========================================================================
+requant_k2:
+    lda totH
+    beq @lo
+    cmp #$FF
+    beq @hi
+    lda totH
+    bmi @satn
+@satp:
+    lda #7
+    rts
+@satn:
+    lda #<(-7)
+    rts
+@lo:
+    ldy totL
+    cpy #HI2 + 1
+    bcs @satp
+    lda tbl_q2,y
+    rts
+@hi:
+    ldy totL
+    cpy #LO2
+    bcc @satn
+    lda tbl_q2,y
+    rts
+
+requant_k3:
+    lda totH
+    beq @lo
+    cmp #$FF
+    beq @hi
+    lda totH
+    bmi @satn
+@satp:
+    lda #7
+    rts
+@satn:
+    lda #<(-7)
+    rts
+@lo:
+    ldy totL
+    cpy #HI3 + 1
+    bcs @satp
+    lda tbl_q3,y
+    rts
+@hi:
+    ldy totL
+    cpy #LO3
+    bcc @satn
+    lda tbl_q3,y
+    rts
+
+requant_k4:
+    lda totH
+    beq @lo
+    cmp #$FF
+    beq @hi
+    lda totH
+    bmi @satn
+@satp:
+    lda #7
+    rts
+@satn:
+    lda #<(-7)
+    rts
+@lo:
+    ldy totL
+    cpy #HI4 + 1
+    bcs @satp
+    lda tbl_q4,y
+    rts
+@hi:
+    ldy totL
+    cpy #LO4
+    bcc @satn
+    lda tbl_q4,y
+    rts
+
+; ===========================================================================
+; post-matmul passes.  All of these save and restore X.
+; ===========================================================================
+bias_copy:
+    stx xsave
+    ldy #0
+@l:
+    lda (sptr),y
+    clc
+    adc #BIASV
+    sta ACTB,y
+    iny
+    cpy cnt
+    bne @l
+    ldx xsave
+    rts
+
+post_q:
+    stx xsave
+    ldy #0
+@l:
+    lda OUTB,y
+    and #$0F
+    asl a
+    asl a
+    asl a
+    asl a
+    sta Q4HI,y
+    iny
+    cpy #NDMODEL
+    bne @l
+    ldx xsave
+    rts
+
+post_kv:
+    stx xsave
+    lda curpos
+    sta kvt
+    jsr kv_ptr
+    ldy #0
+@l:
+    lda OUTB,y
+    and #$0F
+    sta (kptr),y
+    iny
+    cpy #NDMODEL
+    bne @l
+    ldx xsave
+    rts
+
+; kptr = KVBASE + (lay40[curlay] + kvt*2 + kvsel) * 64      (clobbers A/Y)
+kv_ptr:
+    ldy curlay
+    lda lay40,y
+    clc
+    adc kvt
+    adc kvt
+    adc kvsel
+    pha
+    and #$03
+    tay
+    lda mul64lo,y
+    sta kptr
+    pla
+    lsr a
+    lsr a
+    clc
+    adc #>KVBASE
+    sta kptr+1
+    rts
+
+post_residual:
+    stx xsave
+    ldy #0
+@l:
+    lda XVEC,y
+    clc
+    adc OUTB,y
+    tax
+    lda tbl_clamp,x
+    sta XVEC,y
+    clc
+    adc #BIASV
+    sta ACTB,y
+    iny
+    cpy #NDMODEL
+    bne @l
+    ldx xsave
+    rts
+
+post_relu:
+    stx xsave
+    ldy #0
+@l:
+    lda OUTB,y
+    bpl @pos
+    lda #0
+@pos:
+    clc
+    adc #BIASV
+    sta ACTB,y
+    iny
+    cpy #NFF
+    bne @l
+    ldx xsave
+    rts
+
+; ===========================================================================
+; attention
+; ===========================================================================
+attention:
+    stx xsave
+    lda #0
+    sta hbase
+@head:
+    lda hbase
+    clc
+    adc #NDHEAD
+    sta hend
+    jsr attn_head
+    lda hend
+    sta hbase
+    cmp #NDMODEL
+    bcc @head
+    ldx xsave
+    rts
+
+attn_head:
+    ; ---- scores for t = 0..curpos ------------------------------------
+    lda #0
+    sta tcnt
+@score:
+    lda #0
+    sta kvsel
+    lda tcnt
+    sta kvt
+    jsr kv_ptr
+    jsr dot_qk
+    ldy tcnt
+    lda scL
+    sta SCORL,y
+    lda scH
+    sta SCORH,y
+    inc tcnt
+    lda tcnt
+    cmp curpos
+    beq @score
+    bcc @score
+
+    jsr softmax
+
+    ; ---- AV ----------------------------------------------------------
+    ldy hbase
+    lda #0
+@zero:
+    sta AVL,y
+    sta AVH,y
+    iny
+    cpy hend
+    bne @zero
+
+    lda #0
+    sta tcnt
+@group:
+    ldy hbase
+    lda #0
+@z2:
+    sta ACC8,y
+    iny
+    cpy hend
+    bne @z2
+    lda #0
+    sta gi
+@avt:
+    lda #1
+    sta kvsel
+    lda tcnt
+    sta kvt
+    jsr kv_ptr
+    ldy tcnt
+    lda P4HI,y
+    sta ph
+    jsr acc_av
+    inc tcnt
+    inc gi
+    lda tcnt
+    cmp curpos
+    beq @cont
+    bcs @flush
+@cont:
+    lda gi
+    cmp #8
+    bcc @avt
+@flush:
+    jsr av_fold
+    lda tcnt
+    cmp curpos
+    beq @group
+    bcc @group
+    jsr av_quant
+    rts
+
+; ---- score = sum_j mul[(q<<4)|k] - MULBIAS*NDHEAD, blocked by 8 -----------
+dot_qk:
+    lda #0
+    sta scL
+    sta scH
+    ldy hbase
+    lda #NDHEAD / 8
+    sta blkn
+@blk:
+    lda #0
+    sta bacc
+    clc
+    .repeat 8
+    lda (kptr),y
+    ora Q4HI,y
+    tax
+    lda bacc
+    adc tbl_mul,x
+    sta bacc
+    iny
+    .endrepeat
+    lda bacc
+    clc
+    adc scL
+    sta scL
+    bcc @1
+    inc scH
+@1:
+    dec blkn
+    beq @out
+    jmp @blk                ; the unrolled block is >127 bytes, so bne cannot reach
+@out:
+    sec
+    lda scL
+    sbc #<(MULBIAS * NDHEAD)
+    sta scL
+    lda scH
+    sbc #>(MULBIAS * NDHEAD)
+    sta scH
+    rts
+
+; ---- add one position's products into the 8-bit block accumulators -------
+acc_av:
+    ldy hbase
+    lda #NDHEAD / 8
+    sta blkn
+    clc
+@blk:
+    .repeat 8
+    lda (kptr),y
+    ora ph
+    tax
+    lda ACC8,y
+    adc tbl_mul,x
+    sta ACC8,y
+    iny
+    .endrepeat
+    dec blkn
+    beq @out
+    jmp @blk                ; the unrolled block is >127 bytes
+@out:
+    rts
+
+av_fold:
+    ; uses X, not Y: the 6502 has no `inc abs,y`.  X is free here because
+    ; `attention` already saved the weight-stream offset in xsave.
+    ldx hbase
+@l:
+    lda ACC8,x
+    clc
+    adc AVL,x
+    sta AVL,x
+    bcc @1
+    inc AVH,x
+@1:
+    inx
+    cpx hend
+    bne @l
+    rts
+
+; ---- att[j] = quant(AV[j] - MULBIAS*(curpos+1), 4) ------------------------
+av_quant:
+    lda curpos
+    clc
+    adc #1
+    sta t0
+    lda #0
+    sta sumL
+    sta sumH
+    ldy t0
+@mul:
+    lda sumL
+    clc
+    adc #MULBIAS
+    sta sumL
+    lda sumH
+    adc #0
+    sta sumH
+    dey
+    bne @mul
+
+    ldy hbase
+@l:
+    sty t1
+    sec
+    lda AVL,y
+    sbc sumL
+    sta totL
+    lda AVH,y
+    sbc sumH
+    sta totH
+    jsr requant_k4
+    ldy t1
+    sta ATTV,y
+    iny
+    cpy hend
+    bne @l
+    rts
+
+; ===========================================================================
+; softmax over SCORL/SCORH[0..curpos] -> P4HI
+; ===========================================================================
+softmax:
+    lda SCORL
+    sta bestL
+    lda SCORH
+    sta bestH
+    lda #1
+    sta tcnt
+@mx:
+    lda tcnt
+    cmp curpos
+    beq @mxgo
+    bcs @mxdone
+@mxgo:
+    ; signed 16-bit: is SCOR[tcnt] > best ?
+    ldy tcnt
+    lda SCORH,y
+    eor #$80
+    sta t0
+    lda bestH
+    eor #$80
+    cmp t0
+    bcc @mxset
+    bne @mxnext
+    lda bestL
+    cmp SCORL,y
+    bcs @mxnext
+@mxset:
+    ldy tcnt
+    lda SCORL,y
+    sta bestL
+    lda SCORH,y
+    sta bestH
+@mxnext:
+    inc tcnt
+    jmp @mx
+@mxdone:
+
+    lda #0
+    sta tcnt
+    sta sumL
+    sta sumH
+@e:
+    ldy tcnt
+    sec
+    lda SCORL,y
+    sbc bestL
+    sta totL
+    lda SCORH,y
+    sbc bestH
+    sta totH
+    ldx #3
+@sh:
+    lda totH
+    cmp #$80                ; C = sign bit, so ror is an arithmetic shift
+    ror totH
+    ror totL
+    dex
+    bne @sh
+    lda totH
+    beq @use
+    cmp #$FF
+    bne @clampd
+    lda totL
+    cmp #<(-14)
+    bcs @use
+@clampd:
+    lda #<(-14)
+    sta totL
+@use:
+    lda totL
+    clc
+    adc #14
+    tax
+    lda tbl_exp,x
+    ldy tcnt
+    sta EXPE,y
+    clc
+    adc sumL
+    sta sumL
+    bcc @1
+    inc sumH
+@1:
+    inc tcnt
+    lda tcnt
+    cmp curpos
+    beq @e
+    bcc @e
+
+    ; kk = smallest k with (S >> k) <= 8
+    lda #0
+    sta kk
+@kkl:
+    lda sumH
+    bne @shift
+    lda sumL
+    cmp #9
+    bcc @kkdone
+@shift:
+    lsr sumH
+    ror sumL
+    inc kk
+    jmp @kkl
+@kkdone:
+
+    lda #0
+    sta tcnt
+@p:
+    ldy tcnt
+    lda EXPE,y
+    ldx kk
+    beq @noshift
+@sh2:
+    lsr a
+    dex
+    bne @sh2
+@noshift:
+    cmp #8
+    bcc @ok
+    lda #7
+@ok:
+    asl a
+    asl a
+    asl a
+    asl a
+    ldy tcnt
+    sta P4HI,y
+    inc tcnt
+    lda tcnt
+    cmp curpos
+    beq @p
+    bcc @p
+    rts
+
+; ===========================================================================
+; output head: NVOCAB raw rows, argmax with ties going to the lowest index
+; ===========================================================================
+head_argmax:
+    lda #$00
+    sta bestL
+    lda #$80                ; -32768
+    sta bestH
+    lda #0
+    sta besti
+    sta di
+    lda #NVOCAB
+    sta rowcnt
+@row:
+    jsr read_header
+    jsr gather_row
+    ; is tot > best ?  (signed 16-bit)
+    lda totH
+    eor #$80
+    sta t0
+    lda bestH
+    eor #$80
+    cmp t0
+    bcc @better
+    bne @next
+    lda bestL
+    cmp totL
+    bcs @next
+@better:
+    lda totL
+    sta bestL
+    lda totH
+    sta bestH
+    lda di
+    sta besti
+@next:
+    inc di
+    dec rowcnt
+    bne @row
+    lda besti
+    sta curtok
+    rts
+
+; ===========================================================================
+.segment "VECTORS"
+    .word reset
+    .word reset
+    .word reset

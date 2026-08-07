@@ -348,6 +348,11 @@ def pack(model, outdir):
     # number of blocks that list needs
     w("tbl_entoff.bin", [((BLOCK - (n % BLOCK)) % BLOCK) * 6 for n in range(256)])
     w("tbl_blkcnt.bin", [min(255, (n + BLOCK - 1) // BLOCK) for n in range(256)])
+    # how far X advances after the FIRST (possibly partial) block
+    w("tbl_step.bin", [(n % BLOCK) or BLOCK for n in range(256)])
+    # clamp a signed byte to -7..7 (used for the residual adds)
+    w("tbl_clamp.bin", [clamp7(b - 256 if b >= 128 else b) & 0xFF
+                        for b in range(256)])
 
     nnz = sum(len(p) + len(n) for p, n in rows)
     return {
