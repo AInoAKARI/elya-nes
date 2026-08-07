@@ -9,7 +9,7 @@ cat out/model/pack_report.txt
 
 build() {   # build <name> <src> <cfg> [defines...]
     name=$1; src=$2; cfg=$3; shift 3
-    ca65 -I rom "$@" -o "out/$name.o" "$src"
+    ca65 -I rom -I out/model "$@" -o "out/$name.o" "$src"
     ld65 -C "$cfg" -o "out/$name.nes" -Ln "out/$name.lbl" "out/$name.o" 2>&1 \
         | grep -v "Segment 'CHARS' does not exist" || true
 }

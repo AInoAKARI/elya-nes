@@ -52,12 +52,15 @@ BIASV    = 7
 BLOCKSZ  = 16
 MULBIAS  = 13
 
-HI2 = (8 << 2) - 1
-LO2 = <(-(7 << 2))
-HI3 = (8 << 3) - 1
-LO3 = <(-(7 << 3))
-HI4 = (8 << 4) - 1
-LO4 = <(-(7 << 4))
+;; requantise shifts come from host/ref.py via a generated include, so the
+;; ROM and the specification cannot disagree about them.
+.include "shifts.inc"
+HI2 = (8 << KSHIFT) - 1
+LO2 = <(-(7 << KSHIFT))
+HI3 = (8 << W2SHIFT) - 1
+LO3 = <(-(7 << W2SHIFT))
+HI4 = (8 << AVSHIFT) - 1
+LO4 = <(-(7 << AVSHIFT))
 
 MMC5_PRGMODE = $5100
 MMC5_RAMPRO1 = $5102
