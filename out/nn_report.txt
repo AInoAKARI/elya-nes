@@ -1,0 +1,48 @@
+status: OK
+marker events: 39
+
+ROM vs HOST, token by token
+  pos  rom      host     
+  0    60       60       ok
+  1    0        0        ok
+  2    6        6        ok
+  3    27       27       ok
+  4    32       32       ok
+  5    5        5        ok
+  6    60       60       ok
+  7    41       41       ok
+  8    34       34       ok
+  9    34       34       ok
+  10   34       34       ok
+  11   34       34       ok
+  12   34       34       ok
+  13   34       34       ok
+  14   32       32       ok
+  15   5        5        ok
+  16   8        8        ok
+  17   27       27       ok
+  18   6        6        ok
+
+TOKENS MATCHING: 19/19  -> EXACT
+
+CYCLES PER TOKEN (exact, from the write tap)
+  pos 0      1090397 cycles     0.6092 s @ 1789772 Hz
+  pos 1      1103890 cycles     0.6168 s @ 1789772 Hz
+  pos 2      1117654 cycles     0.6245 s @ 1789772 Hz
+  pos 3      1131605 cycles     0.6323 s @ 1789772 Hz
+  pos 4      1145477 cycles     0.6400 s @ 1789772 Hz
+  pos 5      1158733 cycles     0.6474 s @ 1789772 Hz
+  pos 6      1172694 cycles     0.6552 s @ 1789772 Hz
+  pos 7      1186361 cycles     0.6629 s @ 1789772 Hz
+  pos 8      1207567 cycles     0.6747 s @ 1789772 Hz
+  pos 9      1221636 cycles     0.6826 s @ 1789772 Hz
+  pos 10     1235612 cycles     0.6904 s @ 1789772 Hz
+  pos 11     1248900 cycles     0.6978 s @ 1789772 Hz
+  pos 12     1262651 cycles     0.7055 s @ 1789772 Hz
+  pos 13     1276426 cycles     0.7132 s @ 1789772 Hz
+  pos 14     1290580 cycles     0.7211 s @ 1789772 Hz
+  pos 15     1303635 cycles     0.7284 s @ 1789772 Hz
+  pos 16     1325220 cycles     0.7404 s @ 1789772 Hz
+  pos 17     1338929 cycles     0.7481 s @ 1789772 Hz
+  pos 18     1352886 cycles     0.7559 s @ 1789772 Hz
+  TOTAL     23170853 cycles    12.9463 s   (mean 1219518 cycles/token)

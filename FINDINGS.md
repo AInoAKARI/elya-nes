@@ -156,3 +156,131 @@ token, never a random walk.
 Generated token ids (start token 1, 19 steps, greedy argmax):
 `1, 60, 0, 6, 27, 32, 5, 60, 41, 34, 34, 34, 34, 34, 34, 32, 5, 8, 27, 6`
 - 10 distinct values, so the ROM-vs-host comparison is not a constant.
+
+## 4. The port: ROM matches the host reference EXACTLY over 19 tokens
+
+`rom/nn.s`, MMC5, 80 KB PRG (ten 8 KB banks), built by `./build.sh`.
+
+### 4.1 Two real bugs, both of which a 3-token check would have passed
+
+**Bug 1 - Duff's device read the wrong end of the list.** The gather chain is
+16 entries of `ldy stream+k,x / adc actb,y` with *constant* offsets `k`.
+Entering such a chain at entry `16-r` to handle a partial block of `r` covers
+offsets `x+16-r .. x+15` - the **last** r bytes of the block, not the first r.
+Fixed by carrying a `-BLOCKSZ` shift in the pointer and pre-advancing X, so
+entry `k` reads offset `k - BLOCKSZ` and entering at `16-r` with the pointer
+one past the block covers exactly the first r.
+
+The important part: with this bug the ROM still produced the **correct token
+at positions 0 and 1**, and only diverged at position 2. Dumping intermediate
+state showed layer 0 was already wrong at position 0 - the tokens matched by
+coincidence. A 3-token check would have reported 2/3 or even 3/3 and passed a
+completely broken kernel. This is the second time in this project that has
+happened.
+
+**Bug 2 - a row landing exactly on a bank boundary.** The packer decided where
+banks start with `len(stream) % BANK`. A row that ends exactly on a boundary
+makes that read 0, the per-bank pad is never emitted, the ROM's pointer
+underflows to chain -1 and it executes whatever follows the chain table. The
+symptom was a **hang**, not wrong output. Fixed by tracking the bank offset
+explicitly. (Reported crossings went 6 -> 5 -> 6; the 5 was the tell.)
+
+### 4.2 ROM vs HOST, 19 generated tokens, side by side
+
+| pos | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |10 |11 |12 |13 |14 |15 |16 |17 |18 |
+|-----|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| ROM |60 | 0 | 6 |27 |32 | 5 |60 |41 |34 |34 |34 |34 |34 |34 |32 | 5 | 8 |27 | 6 |
+| host|60 | 0 | 6 |27 |32 | 5 |60 |41 |34 |34 |34 |34 |34 |34 |32 | 5 | 8 |27 | 6 |
+
+**19/19 EXACT.** 10 distinct token values, so this is not a constant match.
+Intermediate state was additionally checked element-by-element at position 0:
+`x0`, `x` after each of the three layers, `q`, and the attention output all
+match the host reference exactly.
+
+3 runs of the full ROM: marker streams **bit-identical including absolute
+timestamps**, token dumps identical.
+
+### 4.3 Kernel: measured cycles per MAC
+
+Micro-benchmark (`-DBENCH`) drives the **real** `gather` routine over synthetic
+lists and measures with the same instrument:
+
+| list length n | cycles | cycles/MAC |
+|---|---|---|
+| 1 | 100 | 100.00 |
+| 8 | 156 | 19.50 |
+| 16 | 220 | 13.75 |
+| 17 | 271 | 15.94 |
+| 32 | 391 | 12.22 |
+| 64 | 733 | 11.45 |
+| 96 | 1075 | 11.20 |
+| 128 | 1417 | 11.07 |
+
+Least squares over the full-block lengths: **cycles = 49.00 + 10.688 n**.
+
+- **10.688 cycles/MAC asymptotic**, against the measured **8-cycle**
+  sign-separated gather primitive. The 2.688 gap is entirely per-block
+  bookkeeping: the 16-entry chain ends in `jmp (wfold)` and the fold does a
+  16-bit accumulate, an X advance, a block counter and an indirect jump - 43
+  cycles per 16 MACs.
+- **49-cycle intercept** per list (table lookups, entry-point computation, the
+  jsr/rts pair).
+- In situ the model's lists average only 18.2 entries, which is 2 blocks, so
+  the real figure is worse than asymptotic: **16.34 cycles per MAC** measured
+  across a whole token (838,367 cycles / 51,299 nonzeros).
+
+Two measured optimisations along the way, both re-verified at 19/19 exact:
+
+| change | cycles/MAC in situ | mean cycles/token |
+|---|---|---|
+| first working version | 19.07 | 1,359,212 |
+| inline the X advance, immediate block step | 17.28 | 1,267,489 |
+| page-align the chain bases (see below) | **16.34** | **1,219,518** |
+
+The last one is worth calling out. Carrying the `-BLOCKSZ` shift in the
+instruction operand made every chain's base address `$xxF0`, so **essentially
+every indexed load in the kernel paid the page-cross +1** measured back in the
+calibration. Moving the shift into the pointer instead - and padding each bank
+with 16 bytes so the pointer cannot go negative - made the bases page-aligned
+and bought a straight **1 cycle per MAC**, 51,299 cycles per token. The
+calibration suite predicted this exactly; without having measured the
+page-cross penalty first it would have looked like free abstraction.
+
+### 4.4 Where a token goes
+
+Profiled build (`-DPROFILE`, X-preserving 12-cycle stage markers, overhead
+counted and subtracted):
+
+| stage | pos 0 | pos 18 (full context) |
+|---|---|---|
+| ternary gather (51,299 MACs) | 838,367 (74.5%) | 838,327 (60.4%) |
+| attention (QK + AV) | 39,814 (3.5%) | 302,444 (21.8%) |
+| everything else | 213,540 (19.0%) | 213,475 (15.4%) |
+| bank switches (6) | 36 (0.003%) | 36 (0.003%) |
+
+"Everything else" is header reads, requantisation, the biased activation
+copies, residual adds, relu, embedding lookup and the argmax. Attention is
+the only stage that grows with position, exactly as expected.
+
+### 4.5 CYCLES PER TOKEN AND WALL CLOCK
+
+| | cycles | seconds @ 1.789773 MHz |
+|---|---|---|
+| position 0 (context 1) | 1,090,397 | 0.6092 |
+| position 18 (context 19) | 1,352,886 | 0.7559 |
+| **mean over 19 tokens** | **1,219,518** | **0.6814** |
+| all 19 tokens | 23,170,853 | 12.946 |
+
+(The three candidate clocks agree to five decimals at this magnitude.)
+
+**Against the prior extrapolation.** The prior run extrapolated ~0.8 s/token
+for 114,688 active weights, i.e. ~12.2 cycles per weight. This measurement is
+**8.19 cycles per weight** for the ternary kernel (838,367 / 102,400), and
+**11.9 cycles per weight** including attention, requantisation and everything
+else (1,219,518 / 102,400). So the extrapolation is **CONFIRMED as an
+end-to-end figure** - scaled to 114,688 weights this port would run
+1,366,000 cycles = 0.763 s/token, against the predicted 0.8 - and the
+sign-separated kernel proper is about **1.5x better than the extrapolation**
+because a zero weight costs literally nothing: it is absent from both index
+lists. The gap between the two numbers is the non-kernel work, which the
+extrapolation from a bare 32x16 layer did not include.

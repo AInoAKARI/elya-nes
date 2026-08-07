@@ -1,0 +1,19 @@
+tokens profiled: 19   rows/token: 1408   nnz/token: 51299
+
+first token (pos 0)
+  total (profiled)           1125537 cycles
+  marker overhead              33816 cycles  (2818 markers x 12)
+  ternary gather_row          838367 cycles  ( 74.5%)  over 1408 rows
+  attention                    39814 cycles  (  3.5%)
+  everything else             213540 cycles  ( 19.0%)
+  --> ternary kernel: 16.34 cycles per MAC (nnz = 51299)
+  --> ternary kernel: 8.19 cycles per WEIGHT (102400 weights)
+
+last token (pos 18)
+  total (profiled)           1388062 cycles
+  marker overhead              33816 cycles  (2818 markers x 12)
+  ternary gather_row          838327 cycles  ( 60.4%)  over 1408 rows
+  attention                   302444 cycles  ( 21.8%)
+  everything else             213475 cycles  ( 15.4%)
+  --> ternary kernel: 16.34 cycles per MAC (nnz = 51299)
+  --> ternary kernel: 8.19 cycles per WEIGHT (102400 weights)
