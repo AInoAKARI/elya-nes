@@ -579,3 +579,55 @@ characters, 20 charset tokens is 20.
 Seed noise: the same arm at seed 2 scored 1.5827 against seed 1's 1.5734, so
 **~0.009 nats/char**. The tau 0.75-vs-1.00 gap of 0.030 is about three times
 that, and the vocabulary gap of 0.157 is seventeen times it.
+
+## The attention path was carrying ONE BIT per element
+
+Training turned up a defect in the port's own constants that the exactness
+work could never have found, because the ROM and the reference agreed on it
+perfectly.
+
+`AV_SHIFT` was 4. The attention output is
+
+```
+att[j] = quant( sum_t floor(p_t * v_t / 4) , AV_SHIFT )
+```
+
+and the quantised softmax normalises so that `sum_t p_t <= 8` (the
+power-of-two step picks the smallest `kk` with `S >> kk <= 8`, and a sum of
+floors is at most the floor of the sum). Every value nibble is in `-7..7`.
+So the accumulator is **provably bounded by `7 * 8 / 4 = 14`**, and shifting a
+quantity that never exceeds 14 by 4 bits leaves `floor(a/16)` in `{-1, 0}`.
+
+Measured over a real 19-token trajectory, all three layers:
+
+```
+raw AV accumulator over 3648 values:  min -13  max 12  mean -0.30  std 7.41
+
+  AV_SHIFT=0 -> 15 output levels, saturating 29.28%
+  AV_SHIFT=1 -> 14 output levels, saturating  0.00%   <-- correct
+  AV_SHIFT=2 ->  8 output levels, saturating  0.00%
+  AV_SHIFT=3 ->  4 output levels, saturating  0.00%
+  AV_SHIFT=4 ->  2 output levels, saturating  0.00%   <-- what the port shipped
+```
+
+Layer-0 attention output histogram, at AV_SHIFT=4, over 1,216 values:
+
+| value | -7..-2 | -1 | 0 | 1..7 |
+|---|---|---|---|---|
+| trained | 0.0% | 49.1% | 50.9% | 0.0% |
+| random init | 0.0% | 53.4% | 46.6% | 0.0% |
+
+Identical for trained and random weights, so this is architecture, not
+training. Three attention heads' worth of machinery, 7,680 multiply-adds per
+token, resolving to one bit per channel.
+
+The other two shifts are fine: `K_SHIFT = 2` saturates 27.24% of the time
+(14.32% high, 12.92% low - a healthy two-sided rate for a 4-bit activation),
+`W2_SHIFT = 3` saturates 8.39%.
+
+**Fix**: `AV_SHIFT` 4 -> 1. To stop the ROM and the specification ever
+disagreeing about a constant like this again, `host/ref.py` now *generates*
+`out/model/shifts.inc` and `rom/nn.s` includes it, so the shift exists in
+exactly one place. Regression-checked: rebuilding at `AV_SHIFT=4` produces a
+ROM **byte-identical** to the committed one, and the trainer/reference
+equivalence test still reports EXACT at both 1 and 4.
