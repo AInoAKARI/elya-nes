@@ -3,3 +3,5 @@ out/*.lbl
 out/_p.nes
 __pycache__/
 *.pyc
+data/TinyStories-*.txt
+data/*.npy

@@ -1,0 +1,13 @@
+raw stories                  21990
+mapped stories               21990
+charset size                 33  (31 free slots of 64)
+chars represented exactly      18986555   99.4599%
+chars folded onto a symbol       102354    0.5362%
+chars dropped                       756    0.0040%
+coverage (exact+folded)       99.9960%
+fit stories 20490   val stories 1500   (disjoint whole stories)
+charset  fit tokens 17798157   val tokens 1290667
+learned 31 merges -> vocab 64
+merge tokens: 'e ' ' t' 'd ' 'he ' ' a' ' s' 'he' ' the ' 't ' 'in' 'wa' 'nd ' '. ' 'y ' ' to' 's ' 'ou' 'on' 'ha' 'er' 'ed ' 'it' ' and ' 'ed' 'her' ', ' 'en' 'ar' 'ing' ' to ' 'om'
+bpe64    fit tokens 12243030   val tokens 887743   (1.454 chars/token)
+wrote data/vocab.json
