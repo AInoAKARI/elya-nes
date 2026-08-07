@@ -136,6 +136,7 @@ def main():
     z = model.export_int()
     np.savez(os.path.join(a.out, name + ".npz"), **z)
     meta = dict(name=name, vocab=a.vocab, tau=a.tau, mode=a.mode, quant=a.quant,
+                k_shift=M.K_SHIFT, w2_shift=M.W2_SHIFT, av_shift=M.AV_SHIFT,
                 steps=a.steps, batch=a.batch, lr=a.lr, seed=a.seed,
                 logit_scale=float(scale().detach()) if a.learn_scale else a.logit_scale, fit=fl, val=vl, nnz=nnz, weights=tot,
                 density=nnz / tot, uniform=math.log(M.V), hist=hist,

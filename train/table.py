@@ -21,15 +21,15 @@ for f in sorted(glob.glob(os.path.join(sys.argv[1] if len(sys.argv) > 1 else "ru
 # worth 1.454 characters and a charset token exactly 1.  Everything is also
 # reported per CHARACTER, which is the only fair axis.
 CPT = json.load(open("data/vocab.json"))["chars_per_token_bpe"]
-print("| arm | vocab | quant | tau | fit | val | val/char | density | nnz | banks | fits 7? |")
-print("|---|---|---|---|---|---|---|---|---|---|---|")
+print("| arm | vocab | quant | tau | AV_SHIFT | fit | val | val/char | density | nnz | banks | fits 7? |")
+print("|---|---|---|---|---|---|---|---|---|---|---|---|")
 for m in sorted(rows, key=lambda r: r["val"] / (CPT if r["vocab"] == "bpe64" else 1.0)):
     nnz = m["nnz"]
     banks = int(math.ceil((nnz + ref.STREAM_BANKS * ref.BLOCK) / float(ref.BANK)))
     q = {2: "QAT", 1: "float W", 0: "fp32"}[m["quant"]]
     cpt = CPT if m["vocab"] == "bpe64" else 1.0
-    print("| %s | %s | %s | %.2f | %.4f | %.4f | **%.4f** | %.4f | %d | %d | %s |"
-          % (m["name"], m["vocab"], q, m["tau"], m["fit"], m["val"],
+    print("| %s | %s | %s | %.2f | %d | %.4f | %.4f | **%.4f** | %.4f | %d | %d | %s |"
+          % (m["name"], m["vocab"], q, m["tau"], m.get("av_shift", 4), m["fit"], m["val"],
              m["val"] / cpt, m["density"], nnz, banks,
              "yes" if nnz <= CAP else "**NO**"))
 print("\nuniform baseline ln(64) = %.4f" % math.log(64))
