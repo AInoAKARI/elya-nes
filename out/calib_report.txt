@@ -1,0 +1,46 @@
+REPRODUCIBILITY over 3 runs, including absolute timestamps: BIT-IDENTICAL
+
+CLOCK DERIVATION
+  reference payload: lda #imm (2) + sta abs (4) = 6 cycles
+  measured window   : 6704764629228 as (payload + 6-cycle marker macro = 12)
+    1789772 (MAME truncated)     1789772.0000 Hz -> 11.999999999983 cycles  err -1.734e-11
+    21477272/12 (true NTSC)      1789772.6667 Hz -> 12.000004469826 cycles  err +4.470e-06
+    1789773 (rounded)            1789773.0000 Hz -> 12.000006704747 cycles  err +6.705e-06
+    1789800 (folklore)           1789800.0000 Hz -> 12.000187733392 cycles  err +1.877e-04
+  chosen: 1789772 Hz
+
+RESOLUTION: 1 CPU cycle = 558730385770 as = 558.7304 ns
+
+DATASHEET CALIBRATION
+  payload                  measured   expect 
+  empty                           0        0  ok               no payload - proves no constant is smuggled in
+  nop                             2        2  ok               
+  lda #imm                        2        2  ok               
+  lda zp                          3        3  ok               
+  lda abs                         4        4  ok               
+  sta abs                         4        4  ok               
+  lda abs,x  no cross             4        4  ok               
+  lda abs,x  CROSS                5        5  ok               indexed LOAD takes +1
+  lda abs,y  no cross             4        4  ok               
+  lda abs,y  CROSS                5        5  ok               indexed LOAD takes +1
+  sta abs,x  no cross             5        5  ok               indexed STORE always 5
+  sta abs,x  CROSS                5        5  ok               indexed STORE takes NO +1
+  sta abs,y  CROSS                5        5  ok               indexed STORE takes NO +1
+  lda (zp),y no cross             5        5  ok               
+  lda (zp),y CROSS                6        6  ok               
+  sta (zp),y CROSS                6        6  ok               always 6
+  lda (zp,x)                      6        6  ok               
+  inc abs                         6        6  ok               RMW dummy write modelled
+  inc zp                          5        5  ok               
+  asl a                           2        2  ok               
+  jsr + rts                      12       12  ok               
+  pha + pla                       7        7  ok               
+  lda zp,x                        4        4  ok               
+  inc abs,x                       7        7  ok               RMW indexed always 7
+  branch not taken                2        2  ok               
+  branch taken                    3        3  ok               
+  branch taken CROSS              4        4  ok               
+  lda #imm + sta abs              6        6  ok               the clock reference
+
+CALIBRATION SCORE: 28/28, 0 mismatches
+worst deviation of any window from an integer cycle count: 2.602e-11
