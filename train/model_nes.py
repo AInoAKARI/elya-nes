@@ -32,7 +32,7 @@ V, D, L, H, DH, FF, T = 64, 64, 3, 2, 32, 128, 20
 import os
 K_SHIFT  = int(os.environ.get("NES_K_SHIFT", "2"))
 W2_SHIFT = int(os.environ.get("NES_W2_SHIFT", "3"))
-AV_SHIFT = int(os.environ.get("NES_AV_SHIFT", "1"))
+AV_SHIFT = int(os.environ.get("NES_AV_SHIFT", "2"))
 SM_SHIFT = int(os.environ.get("NES_SM_SHIFT", "3"))
 ACT_MAX = 7
 MUL_SHIFT = 2          # the mul table is floor(q*k / 4)

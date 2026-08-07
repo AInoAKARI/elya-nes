@@ -29,10 +29,12 @@ BIAS     = 7     # activations stored as value+7 in 0..14
 
 K_SHIFT  = int(os.environ.get("NES_K_SHIFT", "2"))   # Wq/Wk/Wv/Wo/W1
 W2_SHIFT = int(os.environ.get("NES_W2_SHIFT", "3"))  # W2 (128 inputs)
-AV_SHIFT = int(os.environ.get("NES_AV_SHIFT", "1"))  # attention value sum
+AV_SHIFT = int(os.environ.get("NES_AV_SHIFT", "2"))  # attention value sum
 SM_SHIFT = int(os.environ.get("NES_SM_SHIFT", "3"))  # score difference -> exp
 
-# AV_SHIFT was 4 in the first cut of this port and that was measurably wrong.
+# AV_SHIFT was 4 in the first cut of this port.  It is now 2, and the reason
+# it is 2 rather than the 1 the range argument demands is a measured negative -
+# see FINDINGS, "Fixing the attention shift made it WORSE".
 # The attention accumulator is provably bounded: the quantised softmax
 # normalises so that sum(p_t) <= 8 and every value nibble is in -7..7, so
 # sum_t floor(p_t*v_t/4) cannot exceed 7*8/4 = 14.  Shifting that by 4 leaves
