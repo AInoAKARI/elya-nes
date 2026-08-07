@@ -284,3 +284,67 @@ sign-separated kernel proper is about **1.5x better than the extrapolation**
 because a zero weight costs literally nothing: it is absent from both index
 lists. The gap between the two numbers is the non-kernel work, which the
 extrapolation from a bare 32x16 layer did not include.
+
+## 5. Independent emulator cross-check (ares 147)
+
+The ROM parks its result in battery-backed PRG-RAM (`"ELYA"`, token count,
+then the tokens at `$7FE0`), which gives a way to read a result out of an
+emulator that has no scripting hook.
+
+```
+xvfb-run -a flatpak run dev.ares.ares --system Famicom elyanes.nes
+```
+
+`elyanes.ram` written by ares:
+
+```
+size 32768   magic at 8160   ntok 19
+tokens [60, 0, 6, 27, 32, 5, 60, 41, 34, 34, 34, 34, 34, 34, 32, 5, 8, 27, 6]
+```
+
+**Identical to MAME and to the host reference, on a completely independent
+emulator.** The result is not a MAME artifact.
+
+Two things fall out of this for free:
+
+- ares's battery file is **32,768 bytes**, independently confirming the
+  measured 32 KB of MMC5 PRG-RAM from a second implementation.
+- Because the state lives in battery-backed SRAM, the generated sequence
+  survives power-off on real hardware at zero runtime cost - the write is 24
+  bytes at the end of the run.
+
+## 6. Block size: measured, and the prior finding does NOT carry over
+
+The brief carried forward that a block of 32 never saturated in 1.148e9 blocks
+despite a bound of 224, because ternary zeros and sign cancellation make the
+sum grow like sqrt(n). **That argument does not survive sign separation** -
+inside a sign-separated block every term comes from the same index list and
+therefore has the same sign, so there is nothing left to cancel and the sum
+grows like n, not sqrt(n).
+
+Measured over the real 19-token trajectory (`host/blocksize.py`):
+
+| block | blocks observed | max value seen | signed >127 | biased >255 |
+|---|---|---|---|---|
+| 16 | 84,455 | 191 | 0 | 0 |
+| **32** | 56,981 | 344 | 0 | **5,477 (9.6%)** |
+
+Worst case by construction: `block*14` biased, `block*7` signed.
+Block 16 -> 224 / 112, both provably in range. Block 32 -> 448 / 224, both
+provably out of range for the biased accumulator this kernel uses.
+
+**Block 16 confirmed by measurement, and block 32 refuted for this
+formulation** - it would corrupt 9.6% of blocks. The prior run's block-32
+observation remains true for the *mixed-sign dense* formulation it was
+measured on; it is simply not transferable here.
+
+## 7. KV row alignment
+
+The brief's guidance was to page-align KV rows because `$6000` has the same
+page-cross +1 hazard (which this run re-measured: 4 aligned, 5 crossing).
+Rows here are `D = 64` bytes at 64-byte aligned addresses, so the row base low
+byte is one of 0/64/128/192 and the attention loop's `lda (kptr),y` with
+`y <= 63` reaches at most `192 + 63 = 255`. **It provably never crosses a
+page**, so 64-byte alignment gives the same guarantee as 256-byte alignment at
+a quarter of the memory. This is a refinement of the guidance, not a
+contradiction of it.
