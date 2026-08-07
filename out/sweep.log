@@ -11,3 +11,70 @@ bpe64_twn_tau0.75_q2_s1      step  2000  fit 2.6466  val 2.6405  density 0.5487 
 bpe64_twn_tau0.75_q2_s1      step  4000  fit 2.4725  val 2.4644  density 0.5451  69s
 bpe64_twn_tau0.75_q2_s1      step  6000  fit 2.3975  val 2.3906  density 0.5450  102s
 bpe64_twn_tau0.75_q2_s1      step  8000  fit 2.3774  val 2.3916  density 0.5438  135s
+bpe64_twn_tau0.75_q2_s1      step 10000  fit 2.3543  val 2.3610  density 0.5440  167s
+bpe64_twn_tau0.75_q2_s1      step 12000  fit 2.2336  val 2.2462  density 0.5441  200s
+FINAL bpe64_twn_tau0.75_q2_s1  fit 2.2401  val 2.2435  (uniform 4.1589)  nnz 55711/102400 = 0.5441
+bpe64_twn_tau1.00_q2_s1      step     1  fit 6.8673  val 6.8935  density 0.4248  1s
+bpe64_twn_tau1.00_q2_s1      step  2000  fit 2.6648  val 2.6650  density 0.4228  33s
+bpe64_twn_tau1.00_q2_s1      step  4000  fit 2.5019  val 2.5005  density 0.4188  66s
+bpe64_twn_tau1.00_q2_s1      step  6000  fit 2.4438  val 2.4420  density 0.4160  98s
+bpe64_twn_tau1.00_q2_s1      step  8000  fit 2.4056  val 2.4224  density 0.4144  130s
+bpe64_twn_tau1.00_q2_s1      step 10000  fit 2.3771  val 2.3834  density 0.4133  163s
+bpe64_twn_tau1.00_q2_s1      step 12000  fit 2.2736  val 2.2896  density 0.4137  195s
+FINAL bpe64_twn_tau1.00_q2_s1  fit 2.2824  val 2.2874  (uniform 4.1589)  nnz 42360/102400 = 0.4137
+bpe64_twn_tau1.25_q2_s1      step     1  fit 6.2645  val 6.2799  density 0.3193  1s
+bpe64_twn_tau1.25_q2_s1      step  2000  fit 2.7335  val 2.7328  density 0.3133  33s
+bpe64_twn_tau1.25_q2_s1      step  4000  fit 2.5778  val 2.5709  density 0.3088  66s
+bpe64_twn_tau1.25_q2_s1      step  6000  fit 2.5079  val 2.5019  density 0.3088  98s
+bpe64_twn_tau1.25_q2_s1      step  8000  fit 2.4542  val 2.4628  density 0.3067  130s
+bpe64_twn_tau1.25_q2_s1      step 10000  fit 2.4560  val 2.4588  density 0.3064  163s
+bpe64_twn_tau1.25_q2_s1      step 12000  fit 2.3759  val 2.3874  density 0.3080  195s
+FINAL bpe64_twn_tau1.25_q2_s1  fit 2.3823  val 2.3855  (uniform 4.1589)  nnz 31538/102400 = 0.3080
+bpe64_twn_tau1.50_q2_s1      step     1  fit 5.2481  val 5.2679  density 0.2317  1s
+bpe64_twn_tau1.50_q2_s1      step  2000  fit 2.8165  val 2.8128  density 0.2249  34s
+bpe64_twn_tau1.50_q2_s1      step  4000  fit 2.6791  val 2.6783  density 0.2220  66s
+bpe64_twn_tau1.50_q2_s1      step  6000  fit 2.6269  val 2.6272  density 0.2191  98s
+bpe64_twn_tau1.50_q2_s1      step  8000  fit 2.6090  val 2.6179  density 0.2174  131s
+bpe64_twn_tau1.50_q2_s1      step 10000  fit 2.5902  val 2.5964  density 0.2171  163s
+bpe64_twn_tau1.50_q2_s1      step 12000  fit 2.5196  val 2.5348  density 0.2171  196s
+FINAL bpe64_twn_tau1.50_q2_s1  fit 2.5246  val 2.5290  (uniform 4.1589)  nnz 22230/102400 = 0.2171
+bpe64_bn_tau1.00_q2_s1       step     1  fit 8.4309  val 8.4544  density 0.6903  1s
+bpe64_bn_tau1.00_q2_s1       step  2000  fit 2.6937  val 2.6908  density 0.6847  33s
+bpe64_bn_tau1.00_q2_s1       step  4000  fit 2.4872  val 2.4834  density 0.6794  66s
+bpe64_bn_tau1.00_q2_s1       step  6000  fit 2.4281  val 2.4285  density 0.6775  98s
+bpe64_bn_tau1.00_q2_s1       step  8000  fit 2.3820  val 2.3959  density 0.6745  130s
+bpe64_bn_tau1.00_q2_s1       step 10000  fit 2.3706  val 2.3794  density 0.6738  163s
+bpe64_bn_tau1.00_q2_s1       step 12000  fit 2.2474  val 2.2675  density 0.6738  195s
+FINAL bpe64_bn_tau1.00_q2_s1   fit 2.2566  val 2.2586  (uniform 4.1589)  nnz 69002/102400 = 0.6738
+charset_twn_tau1.00_q2_s1    step     1  fit 6.9553  val 6.9817  density 0.4248  1s
+charset_twn_tau1.00_q2_s1    step  2000  fit 1.9594  val 1.9647  density 0.4273  33s
+charset_twn_tau1.00_q2_s1    step  4000  fit 1.8414  val 1.8514  density 0.4267  66s
+charset_twn_tau1.00_q2_s1    step  6000  fit 1.8072  val 1.8180  density 0.4246  98s
+charset_twn_tau1.00_q2_s1    step  8000  fit 1.7911  val 1.7930  density 0.4224  129s
+charset_twn_tau1.00_q2_s1    step 10000  fit 1.7662  val 1.7492  density 0.4217  161s
+charset_twn_tau1.00_q2_s1    step 12000  fit 1.6959  val 1.7072  density 0.4224  194s
+FINAL charset_twn_tau1.00_q2_s1 fit 1.7041  val 1.6999  (uniform 4.1589)  nnz 43257/102400 = 0.4224
+bpe64_twn_tau1.00_q1_s1      step     1  fit 12.3949  val 12.4609  density 0.4248  1s
+bpe64_twn_tau1.00_q1_s1      step  2000  fit 2.6628  val 2.6568  density 0.4264  32s
+bpe64_twn_tau1.00_q1_s1      step  4000  fit 2.4072  val 2.3992  density 0.4259  62s
+bpe64_twn_tau1.00_q1_s1      step  6000  fit 2.3072  val 2.3019  density 0.4256  93s
+bpe64_twn_tau1.00_q1_s1      step  8000  fit 2.2459  val 2.2623  density 0.4253  124s
+bpe64_twn_tau1.00_q1_s1      step 10000  fit 2.2254  val 2.2262  density 0.4258  155s
+bpe64_twn_tau1.00_q1_s1      step 12000  fit 2.2027  val 2.2197  density 0.4256  186s
+FINAL bpe64_twn_tau1.00_q1_s1  fit 2.2044  val 2.2075  (uniform 4.1589)  nnz 43583/102400 = 0.4256
+bpe64_twn_tau1.00_q0_s1      step     1  fit 360.7022  val 361.0588  density 0.4248  0s
+bpe64_twn_tau1.00_q0_s1      step  2000  fit 3.0653  val 3.0648  density 0.4251  15s
+bpe64_twn_tau1.00_q0_s1      step  4000  fit 3.0092  val 3.0214  density 0.4257  29s
+bpe64_twn_tau1.00_q0_s1      step  6000  fit 2.7643  val 2.7595  density 0.4244  44s
+bpe64_twn_tau1.00_q0_s1      step  8000  fit 2.6840  val 2.6922  density 0.4248  58s
+bpe64_twn_tau1.00_q0_s1      step 10000  fit 2.6513  val 2.6627  density 0.4249  71s
+bpe64_twn_tau1.00_q0_s1      step 12000  fit 2.6366  val 2.6499  density 0.4249  85s
+FINAL bpe64_twn_tau1.00_q0_s1  fit 2.6446  val 2.6472  (uniform 4.1589)  nnz 43506/102400 = 0.4249
+bpe64_twn_tau1.00_q2_s2      step     1  fit 6.5091  val 6.5417  density 0.4261  1s
+bpe64_twn_tau1.00_q2_s2      step  2000  fit 2.6904  val 2.6858  density 0.4204  34s
+bpe64_twn_tau1.00_q2_s2      step  4000  fit 2.5068  val 2.5028  density 0.4182  66s
+bpe64_twn_tau1.00_q2_s2      step  6000  fit 2.4480  val 2.4550  density 0.4160  99s
+bpe64_twn_tau1.00_q2_s2      step  8000  fit 2.4112  val 2.4249  density 0.4150  131s
+bpe64_twn_tau1.00_q2_s2      step 10000  fit 2.3908  val 2.3965  density 0.4142  164s
+bpe64_twn_tau1.00_q2_s2      step 12000  fit 2.2905  val 2.3071  density 0.4148  196s
+FINAL bpe64_twn_tau1.00_q2_s2  fit 2.2984  val 2.3008  (uniform 4.1589)  nnz 42475/102400 = 0.4148
