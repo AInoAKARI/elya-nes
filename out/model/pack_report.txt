@@ -5,7 +5,7 @@ stream_bytes                 57344
 header_bytes                 5656
 banks                        7
 bank_crossings_per_token     6
-tokens                       [1, 8, 6, 26, 1, 4, 2, 0, 20, 18, 33, 0, 26, 1, 8, 17, 35, 0, 44, 18]
+tokens                       [40, 12, 0, 13, 26, 22, 54, 7, 26, 7, 8, 48, 5, 17, 8, 59, 3, 18, 27, 38]
 ntok                         19
 weights_npz                  runs/final_bpe64_tau0.75.npz
-seed_tok                     1
+seed_tok                     40
