@@ -480,3 +480,24 @@ reshuffle of the fit lines, which makes val identical to fit by construction.
 |---|---|---|
 | charset (33 used of 64) | 17,798,157 | 1,290,667 |
 | bpe64 (64 used of 64) | 12,243,030 | 887,743 |
+
+## Random-init baseline, re-measured this session
+
+Before touching anything, the committed ROM was re-run to confirm the
+instrument still reproduces its own transcript:
+
+```
+TOKENS MATCHING: 19/19  -> EXACT
+TOTAL     23199514 cycles    12.9623 s   (mean 1221027 cycles/token)
+```
+
+That is bit-identical to `out/FULL_VERIFICATION.txt`.
+
+**A discrepancy inside this repo, worth recording.** FINDINGS section 4.5
+above quotes the mean as **1,219,518** cycles (0.6814 s) and position 0 as
+1,090,397. The current ROM measures **1,221,027** and 1,091,722. The 4.5 table
+was written at commit `0f5df22`, *before* `8722a49` fixed the packer's
+exact-bank-boundary pad; that fix changed the stream by a few bytes and cost
+1,509 cycles per token. The clean-rebuild transcript is the truth and 4.5 is
+stale by that amount. Everything below uses **1,221,027 cycles/token at
+nnz = 51,299 (density 0.5010)** as the random-init baseline.
