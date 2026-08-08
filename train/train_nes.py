@@ -139,9 +139,13 @@ def main():
     # worse text with nothing anywhere raising, which happened here once.
     z["_shifts"] = np.array([M.K_SHIFT, M.W2_SHIFT, M.AV_SHIFT, M.SM_SHIFT],
                             dtype=np.int16)
+    # Same argument for the context length: an npz trained at one T loaded at
+    # another gives a positional table of the wrong height, and the only thing
+    # that would have caught it was a bare assert.
+    z["_ctx"] = np.array([M.T], dtype=np.int16)
     np.savez(os.path.join(a.out, name + ".npz"), **z)
     meta = dict(name=name, vocab=a.vocab, tau=a.tau, mode=a.mode, quant=a.quant,
-                k_shift=M.K_SHIFT, w2_shift=M.W2_SHIFT, av_shift=M.AV_SHIFT,
+                ctx=M.T, k_shift=M.K_SHIFT, w2_shift=M.W2_SHIFT, av_shift=M.AV_SHIFT,
                 steps=a.steps, batch=a.batch, lr=a.lr, seed=a.seed,
                 logit_scale=float(scale().detach()) if a.learn_scale else a.logit_scale, fit=fl, val=vl, nnz=nnz, weights=tot,
                 density=nnz / tot, uniform=math.log(M.V), hist=hist,

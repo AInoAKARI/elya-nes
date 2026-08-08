@@ -28,8 +28,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # ---- shape: settled, see DESIGN.md -----------------------------------------
-V, D, L, H, DH, FF, T = 64, 64, 3, 2, 32, 128, 20
 import os
+V, D, L, H, DH, FF = 64, 64, 3, 2, 32, 128
+# T is the only shape knob that varies; see host/ref.py for the KV bound.
+# Keep NES_T identical here and in host/ref.py - the trainer stamps it into the
+# npz and ref.Model.from_npz refuses to load a mismatch.
+T = int(os.environ.get("NES_T", "20"))
 K_SHIFT  = int(os.environ.get("NES_K_SHIFT", "2"))
 W2_SHIFT = int(os.environ.get("NES_W2_SHIFT", "3"))
 AV_SHIFT = int(os.environ.get("NES_AV_SHIFT", "2"))
@@ -80,7 +84,7 @@ def softmax_q(scores, mask, exptab):
     # kk = smallest k with (S >> k) <= 8.  floor(S / 2^k) <= 8  <=>  2^k >= ...
     kk = torch.zeros_like(S)
     cur = S.clone()
-    for _ in range(12):                               # S <= 20*64 = 1280 < 2^11
+    for _ in range(16):                               # S <= T*64 = 5440 < 2^13
         step = (torch.floor(cur / 2 ** kk) > SM_SUM).float()
         kk = kk + step
         if step.sum() == 0:
