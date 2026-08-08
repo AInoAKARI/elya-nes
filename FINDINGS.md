@@ -1293,3 +1293,233 @@ The earlier "3.95% improvement from positions 20+" and the matching 3.06% for
 `T = 40` are entirely the first five positions dragging the 0-19 average up.
 Positions 0-4 are hard because they have no context, in every model, and no
 amount of window fixes that.
+
+---
+
+# THE T = 85 CARTRIDGE
+
+`runs/t85_final_tau0.75.npz` - bpe64, TWN tau = 0.75, `AV_SHIFT = 2`, 60,000
+steps at batch 192, seed 1, lr 3e-3. **Exactly the recipe the shipped T = 20
+model was trained with; `T` is the only difference.**
+
+| | T = 20 (shipped) | T = 85 (this) |
+|---|---|---|
+| fit / val | 2.0431 / 2.0546 | 2.0795 / **2.0856** |
+| **val nats per character** | **1.4133** | **1.4344** |
+| uniform baseline | 2.861 nats/char | 2.861 nats/char |
+| nonzero weights | 52,207 (0.5098) | **52,186 (0.5096)** |
+| stream image | 57,344 B, 7 banks | 57,344 B, 7 banks |
+| KV cache | 7,680 B, 1 PRG-RAM bank | **32,640 B, 4 banks** |
+| characters of context | ~29 | **~124** |
+| ROM image | 90,128 B | 106,512 B |
+
+**Quadrupling the context made the model 0.0211 nats/char WORSE** - 1.5%,
+against a measured seed noise of 0.009 nats/char. It saw 4.25x as many tokens
+per optimisation step to get there, and the averaging window flatters it.
+
+## max|dW| = 0
+
+```
+matrix       shape        nnz        max|dW|
+...          (all 19 matrices)       0
+embed.bin  max|d| = 0   over 4096 values
+pos.bin    max|d| = 0   over 5440 values     <- the 85-row positional table
+weights    102400   nonzero 52186   density 0.5096
+max|dW| = 0   over 102400 ternary weights -> EXACT
+```
+
+## ROM == host, 252 tokens over three seeds
+
+MAME 0.277 `nes`, cycle-exact write tap, full transcript in
+`out/T85_FINAL_VERIFICATION.txt` and `out/T85_FINAL_SIDEBYSIDE.txt`.
+
+| seed token | tokens | result | mean cycles/token |
+|---|---|---|---|
+| 1 `'b'` | **84/84** | EXACT | 1,729,505 |
+| 26 `' '` | **84/84** | EXACT | 1,729,563 |
+| 40 `' the '` | **84/84** | EXACT | 1,729,529 |
+
+**252 generated tokens, every one bit-identical between the 6502 and the
+exact-integer specification**, exercising all four PRG-RAM banks, both
+`$A000` banks and the 340-byte score map. That is 84 per seed against a 16-token
+bar - and the run before it, on random weights, was also 84/84, so the ROM
+change was proved correct before a trained model existed.
+
+## CYCLES PER TOKEN AND THE ATTENTION SHARE
+
+| | T = 20 | T = 85 | change |
+|---|---|---|---|
+| position 0 | 1,103,615 | 1,104,175 | +0.05% |
+| position 18 / 42 | 1,366,939 | 1,738,908 (pos 42) | |
+| last position | 1,366,939 (pos 18) | **2,360,222 (pos 83)** | **+72.6%** |
+| **mean over the run** | **1,233,099** | **1,729,505** | **+40.3%** |
+| seconds per token, mean | 0.6890 | **0.9663** | |
+| seconds, last position | 0.7638 | **1.3187** | |
+| whole generation | 13.09 s (19 tokens) | **81.17 s** (84 tokens) | |
+
+Per-stage, PROFILE build, marker overhead counted and subtracted
+(`out/T85_FINAL_PROFILE.txt`):
+
+| stage | T = 20, pos 18 | T = 85, pos 83 |
+|---|---|---|
+| total | 1,410,393 | **2,395,078** |
+| ternary `gather_row` | 851,040 (60.3%) | 850,198 (**35.5%**) |
+| **attention** | 310,602 (**22.0%**) | **1,296,088 (54.1%)** |
+| everything else | 214,935 (15.2%) | 214,976 (9.0%) |
+| ternary kernel | 16.30 cycles/MAC | **16.29 cycles/MAC** |
+
+The two models have almost identical `nnz` (52,207 vs 52,186), so this is as
+close to a controlled comparison of the cost of `T` as the port allows:
+`gather_row` is 851,040 against 850,198 cycles - **0.1% apart** - and
+everything else is within 41 cycles. **The entire 985,000-cycle difference is
+attention**, and it is 4.17x, against the `(85/20)^2 = 18` that a naive
+`O(T^2)` reading would predict and the 4.25x that the correct one does: the
+attention work at position `p` is `L*H*(p+1)*DH*2` MACs, so it is linear in the
+position and the ratio at the last position is `85/20 = 4.25`. Measured 4.17x.
+The prediction in DESIGN section 4 holds.
+
+Attention goes from **a fifth of a token to more than half.** The mean cost
+rises much less than the peak (40.3% against 72.6%) because the mean sees
+`(p+1)` averaged over the run, which is about half of full context either way.
+
+## Block 16 is still provably and observably safe at T = 85
+
+Over the real 84-token trajectory, 4.4x as many blocks as the T = 20 check:
+
+| block | blocks | max value | signed >127 | biased >255 |
+|---|---|---|---|---|
+| 16 | 381,444 | **202** | 0 | **0** |
+| 32 | 250,908 | 370 | 114 | **19,594 (7.8%)** |
+
+Worst observed 202 against the provable bound of 224. Block 32 remains
+refuted. Nothing about the longer context changes that argument, as expected -
+it depends on the activation range, not on `T`.
+
+## WHAT IT ACTUALLY SAYS
+
+Greedy argmax, ties to the lowest index, which is what `rom/nn.s` does. The
+ROM free-runs from one seed token; that token is the whole prompt. Full survey
+in `out/T85_FINAL_SURVEY.txt`.
+
+```
+seed  1 'b'   -> 'ban who was beauticked and saw a big for with her mommy said, "you can your can your can you can you fo'
+seed  4 'e'   -> 'e. he said, "what is mom!" lily. she said, "yes, made to for for his mommy." man was so happy to be a big fo'
+seed 26 ' '   -> ' with his flower him. he was so hapy saw a big for for for his mommy and saw a big for for his mommy. she was '
+seed 28 ','   -> ', she was very happpy. she said, "i worry, but is mommy!" lily said, "you can you can your can you can wory'
+seed 31 '!'   -> '! lily looked and said, "what is mom!" mom is made to mommy said, "you can you can you can youre to for you'
+seed 43 'wa'  -> 'was made to made to made and said, "i mom!" let's made to made to made to made and said, "thank you can '
+seed 58 ', '  -> ', lily. she was very broom and said, "thank you for you can you for your for you for the boy for for you for fo'
+```
+
+**It does not form sentences. It forms the same phrases and then jams.**
+Every one of these starts as recognisable English at the phrase level and
+collapses into a repeated bigram - `for for for`, `you can you can`, `made to
+made to` - somewhere between token 20 and token 40.
+
+### Side by side at MATCHED length, which is the fair comparison
+
+The looping above is partly a property of greedy decoding over 84 steps, and
+the `T = 20` cartridge was never asked to run that long. So here is the same
+`T = 85` model truncated to the 19 tokens the `T = 20` cartridge emits, against
+the shipped model, same seeds:
+
+```
+seed      T = 20 (shipped, 1.4133)              T = 85 (new, 1.4344)
+'b'    -> 'big friends. she was so hap'          'ban who was beauticked a'
+' '    -> ' came to playing with hi'             ' with his flower him. he wa'
+','    -> ', she said, "that's a proud '         ', she was very happpy. she said'
+'!'    -> '! he was so happy. she was so '       '! lily looked and said, "w'
+'he '  -> 'he said, "i was so happy. s'          'he said, "i we loook, but '
+'wa'   -> 'was so happy and said, "i hav'        'was made to made to made '
+'her'  -> 'her friends. she was so happy'        'her for his mom and said, "wha'
+', '   -> ', he saw a big dad and said'          ', lily. she was very broom and sa'
+'en'   -> 'enture. he was so happy and sai'      'ent. he said, "i wet!" ma'
+```
+
+At matched length the two are **the same kind of text**: correct punctuation
+and quoting, `he`/`she` agreement within a clause, phrase-level fluency, no
+sentence-level plan. The `T = 85` column is slightly more varied in content
+(`lily looked and said`, `she was very happpy`, `i wet!`) and slightly worse
+at spelling (`happpy`, `loook`, `beauticked`, `broom` for `brave`); the
+`T = 20` column leans harder on the TinyStories cliches (`was so happy`,
+`friends`). Neither is a sentence.
+
+**Nothing that four times the context bought is visible in the text.**
+
+## THE VERDICT: CAPACITY, NOT CONTEXT
+
+Five independent measurements, and they agree.
+
+**1. The aggregate loss got worse.** 1.4344 nats/char at `T = 85` against
+1.4133 at `T = 20`, same recipe, same weights budget, same corpus. The longer
+model saw 4.25x more tokens per step and is flattered by the averaging window,
+and it still lost by 2.3 times the seed noise.
+
+**2. The loss-versus-context curve has an interior optimum at 20.** At matched
+12,000 steps: `T = 10` 1.5854, `T = 20` **1.5289**, `T = 40` 1.5344, `T = 85`
+1.5772 nats/char. Twenty is not a compromise the ROM forced; it is where this
+model is best.
+
+**3. At matched positions the short-context model wins everywhere.** Both
+60,000-step models, asked exactly the same question:
+
+| positions | T = 20 | T = 85 |
+|---|---|---|
+| 0-4 | **2.3170** | 2.4184 |
+| 5-9 | **1.9573** | 2.0958 |
+| 10-19 | **1.9660** | 2.0697 |
+| 20-39 | - | 2.0552 |
+| 40-59 | - | 2.0559 |
+| 60-84 | - | 2.0636 |
+
+The `T = 85` model at position 84, with **124 characters** of context, scores
+2.0636 - still worse than the `T = 20` model at positions 10-19 with **15 to 28
+characters**. Context did not buy back what the extra 65 rows of positional
+table and the wider attention cost.
+
+**4. Inside the long model, context past ~10 tokens does nothing.** Positions
+10-19 are 2.0697 and positions 60-84 are 2.0636: **0.3% better for four times
+the context**, and 20-39 through 60-84 vary by 0.4% with no trend. The curve is
+flat from about position 10, i.e. from about **fifteen characters**. That is
+the same flattening the `T = 20` model already showed, at the same place, and
+it was measured and written down *before* this model existed.
+
+**5. The attention DID learn to reach - and it did not help.** Layer 2's mean
+attention distance went from 0.91 to **7.82**, its p95 from 4 to **30**, and
+**13.70%** of its mass now lands more than 19 positions back, where the
+`T = 20` cartridge could not reach at all:
+
+```
+T = 20                                    T = 85
+layer nonzero mean p95 max  >19back      layer nonzero mean p95 max  >19back
+0     1.38    1.00 2   7    0.00%        0     1.75    1.39 3   80   0.24%
+1     1.22    0.96 3   9    0.00%        1     1.44    1.62 5   80   0.15%
+2     1.14    0.91 4   11   0.00%        2     1.43    7.82 30  63   13.70%
+```
+
+This is the strongest form of the negative result. The failure is **not** that
+the model ignored the window. Given somewhere to look, it built a long-range
+head and used it, and the loss got worse anyway.
+
+### Why, mechanically
+
+Two things bound it and neither is the window.
+
+*The softmax can only address about 1.5 positions.* The quantised softmax
+normalises so `sum_t p_t <= 8` with every `p_t` an integer in `0..7`, so at
+most 8 of the `T` positions can carry any weight - and measured, the number
+that actually do is **1.14 to 1.75**. Widening `T` widens *where* the model may
+look, not *how much* it may look at. A 4-bit probability nibble cannot
+represent a distribution over 85 things.
+
+*The weights are the binding budget.* 102,400 ternary weights have to encode
+the positional table too, and it went from 20 rows to 85. Ternarising the
+weights costs about 3.6% (measured earlier in this journal); quadrupling the
+context costs 1.5% and buys nothing. Both are small compared with the gap to
+fluent English, which is what "three 64-wide layers" buys you.
+
+**The ceiling is capacity.** More weights, a wider `D`, more layers, or a
+mixture-of-experts across the 32 spare PRG banks - not a longer window. And if
+context were revisited, the softmax resolution would have to be fixed first:
+a `sum <= 8` integer softmax over 85 positions is the constraint that makes the
+long-range head the model *did* learn unable to pay for itself.
