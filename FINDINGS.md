@@ -940,3 +940,46 @@ define and the `NSTREAM` define are all provably neutral.
 
 The committed `out/nn.nes` is the **trained** cartridge
 (`runs/final_av2_bpe64_tau0.75.npz`, seed token 1), not the random-init one.
+
+---
+
+# Context extension: T = 20 -> 85 (2026-08-08)
+
+The shipped cartridge writes phrase-level English with correct spelling and
+punctuation and no sentence-level coherence. It also has **29 characters of
+context** (T = 20 tokens at 1.454 chars/token). Those two facts are not
+separable from the outside: the model may be short of weights, or it may
+simply never see a whole sentence. One retrain at a longer context separates
+them.
+
+`T` is the only thing that changes. V = 64, D = 64, L = 3, H = 2, d_head = 32,
+F = 128, block 16, 4-bit activations, ternary sign-separated weights,
+`AV_SHIFT = 2`, the same TinyStories corpus and the same 64-symbol bpe64
+vocabulary (`data/vocab.json` in this clone is byte-identical to the one the
+T = 20 model was trained on - checked with `cmp`).
+
+The KV arithmetic that sets the target:
+
+```
+KV bytes = L x T x 2 x D
+T = 20 -> 3*20*2*64 =  7,680 B = 23.4% of the 32,768 B PRG-RAM window
+T = 85 -> 3*85*2*64 = 32,640 B = 99.6% of it, ~124 characters of context
+```
+
+85 is not a round number, it is `32768 / (3*2*64)` floored - the largest
+context this cartridge can hold without touching system RAM.
+
+## Baseline re-measured before anything was touched
+
+The committed cartridge, rebuilt from `runs/final_av2_bpe64_tau0.75.npz` in
+this clone, against the host reference:
+
+```
+max|dW| = 0   over 102400 ternary weights -> EXACT
+TOKENS MATCHING: 19/19  -> EXACT
+TOTAL     23428899 cycles    13.0904 s   (mean 1233099 cycles/token)
+```
+
+Bit-identical to `out/FINAL_VERIFICATION.txt`. The instrument, the toolchain
+and the corpus in this clone all reproduce the shipped result, so anything
+that changes from here is the change under test and not the environment.
