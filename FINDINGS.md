@@ -1351,7 +1351,7 @@ change was proved correct before a trained model existed.
 |---|---|---|---|
 | position 0 | 1,103,615 | 1,104,175 | +0.05% |
 | position 18 / 42 | 1,366,939 | 1,738,908 (pos 42) | |
-| last position | 1,366,939 (pos 18) | **2,360,222 (pos 83)** | **+72.6%** |
+| last position | 1,366,939 (pos 18) | **2,360,222 (pos 83)** | **+72.7%** |
 | **mean over the run** | **1,233,099** | **1,729,505** | **+40.3%** |
 | seconds per token, mean | 0.6890 | **0.9663** | |
 | seconds, last position | 0.7638 | **1.3187** | |
@@ -1371,12 +1371,16 @@ Per-stage, PROFILE build, marker overhead counted and subtracted
 The two models have almost identical `nnz` (52,207 vs 52,186), so this is as
 close to a controlled comparison of the cost of `T` as the port allows:
 `gather_row` is 851,040 against 850,198 cycles - **0.1% apart** - and
-everything else is within 41 cycles. **The entire 985,000-cycle difference is
-attention**, and it is 4.17x, against the `(85/20)^2 = 18` that a naive
-`O(T^2)` reading would predict and the 4.25x that the correct one does: the
-attention work at position `p` is `L*H*(p+1)*DH*2` MACs, so it is linear in the
-position and the ratio at the last position is `85/20 = 4.25`. Measured 4.17x.
-The prediction in DESIGN section 4 holds.
+everything else is within 41 cycles. **The entire 985,490-cycle difference is
+attention.**
+
+Attention at position `p` is `L*H*(p+1)*DH*2` MACs - **linear in the position**,
+quadratic only when summed over a whole generation. So the predicted ratio at
+the last position is `84/19 = 4.42`, and the measured one is
+`1,296,088 / 310,602 = ` **4.17**. The 5.6% shortfall is the part of the
+attention block that does not scale with `p`: the per-head accumulator zeroing,
+the `av_quant` setup and the final requantise, which are paid `L*H = 6` times
+per token whatever the context is. The DESIGN section 4 prediction holds.
 
 Attention goes from **a fifth of a token to more than half.** The mean cost
 rises much less than the peak (40.3% against 72.6%) because the mean sees
