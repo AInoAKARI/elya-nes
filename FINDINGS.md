@@ -1105,3 +1105,86 @@ normalisation drive it far below that ceiling in practice.
 little or no loss. If that is what the retrain shows, the ceiling is capacity
 (or the softmax's resolution), not the window. Recorded here, in advance, so
 the retrain is a test and not an illustration.
+
+## The tau ladder at T = 85, against the published T = 20 ladder
+
+Same 12,000 steps, same batch 192, same lr, same seed, same corpus and
+vocabulary as the `T = 20` table above. The only difference is the context.
+
+| arm | T | val nats/token | **val/char** | density | nnz | banks | fits 7? |
+|---|---|---|---|---|---|---|---|
+| twn tau 0.75 | 20 | 2.2435 | **1.5432** | 0.5441 | 55,711 | 7 | yes |
+| twn tau 0.75 | **85** | 2.2933 | **1.5772** | 0.5346 | 54,743 | 7 | yes |
+
+At matched training, the 85-token model is **0.034 nats/char worse** than the
+20-token one - and it saw 4.25x as many tokens per step to get there. That is
+the first hard number against the context hypothesis.
+
+### The whole T = 85 pipeline verified on this 12,000-step arm
+
+Before spending an hour on a longer run, the entire path was checked end to
+end on it:
+
+```
+weights    102400   nonzero 54743   density 0.5346
+max|dW| = 0   over 102400 ternary weights -> EXACT
+   (pos.bin max|d| = 0 over 5440 values - the 85-row positional table)
+TOKENS MATCHING: 84/84  -> EXACT
+TOTAL    148158149 cycles   82.7805 s   (mean 1763787 cycles/token)
+```
+
+Transcripts: `out/T85_12K_VERIFICATION.txt`, `out/T85_PROFILE.txt`.
+
+### Where a token goes at T = 85
+
+`run_profile.py`, PROFILE build, marker overhead counted and subtracted:
+
+| stage | T = 20, pos 18 | T = 85, pos 83 |
+|---|---|---|
+| total | 1,410,393 | **2,430,470** |
+| ternary `gather_row` | 851,040 (60.3%) | 883,637 (**36.4%**) |
+| attention | 310,602 (**22.0%**) | 1,298,175 (**53.4%**) |
+| everything else | 214,935 (15.2%) | 214,842 (8.8%) |
+| ternary kernel | 16.30 cycles/MAC | 16.14 cycles/MAC |
+
+The ternary kernel does not move - it is `nnz` work per token whatever `T` is,
+and 16.14 vs 16.30 cycles/MAC is the different `nnz` of a different model, not
+a different kernel. **Attention goes from a fifth of a token to more than
+half**, exactly as `O(T^2)` says it must.
+
+### The attention DOES reach further - and it does not help
+
+`train/attnspan.py` on the same arm:
+
+```
+T = 85   heads logged = 2016
+layer  nonzero    mean dist  p95 dist   max dist   mass >19 back
+0      1.69       1.41       4          19         0.00%
+1      1.55       2.19       8          29         0.31%
+2      1.51       6.12       22         43         8.42%
+
+ATTENTION MASS LANDING MORE THAN 19 POSITIONS BACK: 2.98%
+```
+
+So the longer window is not inert: layer 2's mean attention distance goes from
+0.91 to **6.12**, its p95 from 4 to **22**, and 8.42% of its mass now lands
+where the `T = 20` cartridge could not reach at all. The model built a
+long-range head when it was given somewhere to put it.
+
+And the loss does not care. `train/perpos.py` on the same arm:
+
+```
+positions    nats/token     nats/char
+0-4          2.5819         1.7761
+5-9          2.3052         1.5857
+10-19        2.2828         1.5703
+20-39        2.2648         1.5579
+40-59        2.2634         1.5569
+60-84        2.2788         1.5675
+```
+
+From position 10 onward the curve is **flat to within 0.7%**, and positions
+60-84 - with four times the context of position 19 - are 0.18% better than
+positions 10-19. That is noise. The 3.95% figure for "positions 20+ versus
+positions 0-19" is entirely the first five positions, which have almost no
+context by definition and would be hard for any model.
