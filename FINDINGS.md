@@ -1018,3 +1018,81 @@ So the plan is legal: self-modified kernels live in RAM bank 5 mapped at
 `$8000` (the weight-stream window, which attention never reads), the KV cache
 stays in the `$6000` window, and there is a spare bank for a second cache
 layout.
+
+## Stage A: AV at 8.00 cycles/MAC - stop building the index, move it into the instruction
+
+The wall the brief describes is real but it is not the whole story. Building
+`(q<<4)|k` needs `ora`, `ora` has no X/Y form, so the accumulator is evicted
+from A. **But only one of attention's two kernels actually has two varying
+operands.** In AV,
+
+    att[d] = sum_t mul[(p_t << 4) | v_t[d]]
+
+`p_t` does not depend on `d`. So if `d` is the OUTER loop and `t` the inner
+one, the multiply table ROW is fixed for the whole of an inner iteration, and
+a fixed row is an *address*, not a register operand. There is no index to
+build, so nothing evicts the accumulator:
+
+    ldx VBASE + t*256, y        ; 4   y = curlay*64 + d
+    adc tbl_mul + (p_t<<4), x   ; 4   low byte self-modified
+
+That transposition is the whole trick, and it needs three things arranged
+around it:
+
+* **`d` outer, `t` inner** - the opposite of the old loop, which had to be
+  `t` outer because it accumulated 32 separate sums in `ACC8`.
+* **`t` in the instruction, not a register**, so the multiply row can be
+  patched per t. That means the t loop is unrolled: 20 units, laid out in
+  DESCENDING t, entered at unit `19 - curpos` so it covers exactly
+  t = curpos..0. Addition is commutative, so the reversed order cannot
+  change a sum.
+* **the kernel in RAM** - PRG-RAM bank 5 mapped at `$8000`, the
+  weight-stream window, which attention never reads. `reset` copies the
+  kernel there from the `$A000` bank.
+
+The value cache moved to its own PRG-RAM bank in the layout the kernel wants,
+`V[t][l][d] = $6000 + t*256 + l*64 + d`. The 256-byte t stride is not
+padding for its own sake: it makes the base a build-time constant AND makes
+`ldx base,y` page-cross free for all 192 (l,d) offsets, which is worth a
+whole cycle per MAC.
+
+### Isolated (ATTNBENCH build, real chain, t-count swept 1..20)
+
+```
+  MACs   cyc/call     kernel    cyc/MAC
+  1         58.08      38.08     38.078
+  10       130.08     110.08     11.008   d=+8.00
+  11       151.08     131.08     11.916   d=+21.00   <- carry fold
+  19       215.08     195.08     10.267   d=+8.00
+  20       227.08     207.08     10.354   d=+12.00   <- carry fold
+```
+
+**Every step is exactly +8.00 cycles.** The two visible jumps are the two
+16-bit carry folds; the folds are ten units apart because 10 x 25 = 250 < 256
+is the largest block that provably cannot set carry, the same argument that
+licenses the ternary gather chain. Intercept ~30 cycles = `jsr` + `jmp
+(avp)` + `rts` + the closing fold.
+
+### Measured, before and after
+
+| | before | after |
+| --- | ---: | ---: |
+| AV kernel body, isolated | 26.88 cyc/MAC | **8.00 cyc/MAC** (slope) |
+| AV kernel, in situ (pos 18) | 98,040 cyc | **38,720 cyc** |
+| whole AV section, in situ | 154,244 cyc | **56,344 cyc** |
+| whole AV section per MAC | 42.28 cyc/MAC | **15.44 cyc/MAC** |
+| attention (PROFILE build, pos 18) | 302,624 (21.6%) | **206,932 (15.9%)** |
+| cycles/token, mean | 1,233,099 | **1,184,165** |
+| cycles/token, pos 18 | 1,366,939 | **1,270,349** |
+
+**57/57 tokens exact** against the host reference at seed tokens 1, 26 and 40
+(19 tokens each, well past the 16-token bar), with `max|dW| = 0` on the
+packed weights each time.
+
+One bug worth recording because it passed positions 0 and 1: the AV bias
+`MULBIAS*(curpos+1)` was hoisted out of the per-head loop into `attention`,
+where it was written to `sumL/sumH` - which `softmax` then overwrites on its
+way past. Positions 0 and 1 still came out right. Position 2 did not. That
+is the third time in this project that a change has produced the correct
+token at position 0 and 1 while being wrong; a 3-token check would have
+shipped it.

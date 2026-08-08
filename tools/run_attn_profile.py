@@ -87,10 +87,12 @@ def report(rom, label_only=None):
         out.append("  %-20s %9d cycles" % ("  score-loop other", sl - qk))
         out.append("  %-20s %9d cycles" % ("  AV other", av - avk))
         out.append("  %-20s %9d cycles" % ("attention accounted", sl + sm + av))
+        # QK is called once per (layer, head, t) and does d_head MACs;
+        # AV is called once per (layer, head, d) and does curpos+1 MACs.
         nm = corrected["QK kernel"][1] * 32
         if nm:
             out.append("  QK: %.2f cycles/MAC over %d MACs" % (qk / float(nm), nm))
-        nm2 = corrected["AV kernel"][1] * 32
+        nm2 = corrected["AV kernel"][1] * (i + 1)
         if nm2:
             out.append("  AV: %.2f cycles/MAC over %d MACs" % (avk / float(nm2), nm2))
     return "\n".join(out)

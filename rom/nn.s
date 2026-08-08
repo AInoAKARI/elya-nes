@@ -98,18 +98,31 @@ OUTB   = $0500              ; signed matmul output, up to 128 entries
 XVEC   = $0600              ; residual stream x[0..63], signed
 Q4HI   = $0640              ; (q & 15) << 4
 ATTV   = $0680              ; attention output, signed
-ACC8   = $06C0              ; 8-bit block accumulators for AV
 SCORL  = $0700
 SCORH  = $0720
 EXPE   = $0740
 P4HI   = $0760
-AVL    = $0780
-AVH    = $07C0
 
 EMBED   = $A000
 POSTAB  = $A000 + NVOCAB * NDMODEL
 HEADERS = $C000
 KVBASE  = $6000
+
+; ---- self-modified kernels and the caches they read -----------------------
+; KERNBANK is PRG-RAM mapped at $8000 (the weight-stream window, which
+; attention never reads) and holds the kernels whose multiply-table operands
+; are patched per layer/head.  VBANK is a SECOND PRG-RAM bank holding the
+; value cache in the layout the AV kernel wants:
+;
+;   V[t][l][d] = VBASE + t*256 + l*64 + d
+;
+; The 256-byte t stride is what makes the AV kernel's `ldx VBASE+t*256,y`
+; free of page crossings for every one of the 192 (l,d) offsets, and it makes
+; the base a BUILD-TIME CONSTANT - the kernel never patches it.
+KERNBANK = 5
+VBANK    = 6
+KVBANK   = 4
+VBASE    = $6000
 
 .zeropage
 wchain:  .res 2
@@ -154,6 +167,10 @@ bestH:   .res 1
 besti:   .res 1
 t0:      .res 1
 t1:      .res 1
+avp:     .res 2
+yoff:    .res 1
+avbL:    .res 1              ; MULBIAS * (curpos+1); NOT sumL/sumH, which
+avbH:    .res 1              ; softmax overwrites between here and the AV pass
 
 .segment "BSS"
 res_tokens: .res 32
@@ -215,6 +232,53 @@ tbl_blkcnt: .incbin "out/model/tbl_blkcnt.bin"
     .align $100
 tbl_step:   .incbin "out/model/tbl_step.bin"
 tbl_exp:    .incbin "out/model/tbl_exp.bin"
+
+; ===========================================================================
+; Self-modified kernels.  Assembled for $8000 (PRG-RAM bank 5) but STORED in
+; the $A000 bank; `reset` copies them across.  See RAMEXEC in FINDINGS for the
+; measurement that says MMC5 PRG-RAM at $8000 is writable and executable.
+; ===========================================================================
+.segment "RAMKERN"
+.import __RAMKERN_LOAD__, __RAMKERN_RUN__, __RAMKERN_SIZE__
+
+; --- AV: att[d] = quant(sum_t mul[(p_t<<4)|v_t[d]] - MULBIAS*(curpos+1)) ---
+;
+; The 6502 cannot keep an accumulator in A while ALSO building a multiply
+; index, because `ora` has no X/Y form (see DESIGN.md).  The way out is to
+; stop building the index: p_t is constant across d, so the multiply table
+; ROW is constant across d too, and the row's address can live in the
+; INSTRUCTION rather than in a register.  Then d is the outer loop, t is the
+; inner one, A holds the accumulator for the whole of it, and each element is
+;
+;       ldx VBASE+t*256, y      ; 4   y = l*64 + d, never crosses a page
+;       adc tbl_mul+(p_t<<4), x ; 4   low byte patched by av_patch
+;
+; Eight cycles per multiply-add against the 25 the ora/tax/lda/adc/sta form
+; costs.  The chain is laid out in DESCENDING t so that entering it at unit
+; (NCTX-1-curpos) covers exactly t = curpos..0; addition is commutative so
+; the order does not change the sum.
+;
+; Carry: every table entry is 0..25 and the folds are at most ten units
+; apart, so 10*25 = 250 < 256 - a block can never set carry, exactly the
+; argument that makes the ternary gather chain legal.
+avchain:
+.repeat NCTX, u
+    .ident (.sprintf ("avu%02d", u)):
+    ldx VBASE + (NCTX - 1 - u) * 256, y
+    .ident (.sprintf ("avop%02d", NCTX - 1 - u)) = * + 1
+    adc tbl_mul, x
+    .if (u = 9) || (u = NCTX - 1)
+    adc totL                    ; fold the block into the 16-bit total
+    sta totL
+    bcc *+4
+    inc totH
+    lda #0
+    clc
+    .endif
+.endrepeat
+    rts
+
+RAMKERN_END:
 
 ; ===========================================================================
 ; 32 gather chains, one per page of the $8000 weight window.
@@ -313,6 +377,52 @@ reset:
     inx
     bne @clrkv
 
+    ; clear the value cache in RAM bank 6 ($6000..$73FF)
+    lda #VBANK
+    sta MMC5_RAMBANK
+    lda #0
+    ldx #0
+@clrv:
+    .repeat 20, pg
+    sta VBASE + pg * 256, x
+    .endrepeat
+    inx
+    bne @clrv
+    lda #KVBANK
+    sta MMC5_RAMBANK
+
+    ; copy the self-modified kernels into PRG-RAM bank 5 at $8000
+    .assert <__RAMKERN_LOAD__ = 0, lderror, "RAMKERN load is not page aligned"
+    .assert <__RAMKERN_RUN__ = 0, lderror, "RAMKERN run is not page aligned"
+    .assert __RAMKERN_RUN__ = $8000, lderror, "RAMKERN must run at $8000"
+    lda #KERNBANK
+    sta MMC5_PRG8000
+    lda #<__RAMKERN_LOAD__
+    sta sptr
+    lda #>__RAMKERN_LOAD__
+    sta sptr+1
+    lda #<__RAMKERN_RUN__
+    sta kptr
+    lda #>__RAMKERN_RUN__
+    sta kptr+1
+    ldx #0
+@kpg:
+    cpx #>(__RAMKERN_SIZE__ + 255)      ; whole pages, rounded up
+    beq @kdone
+    ldy #0
+@kb:
+    lda (sptr),y
+    sta (kptr),y
+    iny
+    bne @kb
+    inc sptr+1
+    inc kptr+1
+    inx
+    bne @kpg
+@kdone:
+    lda #$80
+    sta MMC5_PRG8000
+
     lda #SEEDTOK
     sta curtok
     lda #0
@@ -320,6 +430,9 @@ reset:
 
     ldx #254
     stx MARKER              ; SYNC
+.ifdef ATTNBENCH
+    jmp attn_bench
+.endif
 .ifdef RAMEXEC
     jmp ramexec_test
 .endif
@@ -531,6 +644,53 @@ ramexec_test:
     ldx #M_DONE
     stx MARKER
 @h: jmp @h
+.endif
+
+
+.ifdef ATTNBENCH
+; --- isolated slope/intercept for the attention kernels --------------------
+; Calls the REAL chains (not copies) over t-counts 1..NCTX so the per-MAC
+; slope and the per-call intercept separate, the way BENCH does for the
+; ternary gather.  Cache contents are irrelevant to the cycle count: every
+; address involved is proven page-cross free, so the timing is data
+; independent.  The measured window is BENCH_REP calls plus BENCH_REP copies
+; of a fixed 20-cycle driver, which cancels out of the slope.
+BENCH_REP = 64
+
+attn_bench:
+    lda #KERNBANK
+    sta MMC5_PRG8000
+    lda #VBANK
+    sta MMC5_RAMBANK
+    jsr av_patch
+    lda #0
+    sta di
+@l:
+    ldy di
+    lda avent_lo,y
+    sta avp
+    lda avent_hi,y
+    sta avp+1
+    lda #BENCH_REP
+    sta cnt
+    MARKX M_BEGIN
+@r:
+    lda #0                  ; 2
+    sta totL                ; 3
+    sta totH                ; 3
+    ldy #0                  ; 2
+    clc                     ; 2
+    jsr av_call             ; 6 + chain
+    dec cnt                 ; 5
+    bne @r                  ; 3
+    MARKX M_END
+    inc di
+    lda di
+    cmp #NCTX
+    bcc @l
+    ldx #M_DONE
+    stx MARKER
+@bh: jmp @bh
 .endif
 
 ; ===========================================================================
@@ -1008,9 +1168,23 @@ post_q:
 
 post_kv:
     stx xsave
+    lda kvsel
+    bne @v
     lda curpos
     sta kvt
     jsr kv_ptr
+    jmp @go
+@v:                             ; V[curpos][curlay][d], RAM bank 6
+    lda #VBANK
+    sta MMC5_RAMBANK
+    ldy curlay
+    lda mul64lo,y
+    sta kptr                    ; curlay * 64
+    lda curpos
+    clc
+    adc #>VBASE
+    sta kptr+1                  ; VBASE + curpos * 256
+@go:
     ldy #0
 @l:
     lda OUTB,y
@@ -1019,6 +1193,8 @@ post_kv:
     iny
     cpy #NDMODEL
     bne @l
+    lda #KVBANK
+    sta MMC5_RAMBANK
     ldx xsave
     rts
 
@@ -1084,6 +1260,28 @@ post_relu:
 ; ===========================================================================
 attention:
     stx xsave
+    ; MULBIAS * (curpos + 1), the AV bias.  Computed once per layer here
+    ; instead of once per head inside the old av_quant.
+    lda curpos
+    clc
+    adc #1
+    tay
+    lda #0
+    sta avbL
+    sta avbH
+@bias:
+    lda avbL
+    clc
+    adc #MULBIAS
+    sta avbL
+    lda avbH
+    adc #0
+    sta avbH
+    dey
+    bne @bias
+    ; map the self-modified kernels over the weight-stream window
+    lda #KERNBANK
+    sta MMC5_PRG8000
     lda #0
     sta hbase
 @head:
@@ -1096,6 +1294,9 @@ attention:
     sta hbase
     cmp #NDMODEL
     bcc @head
+    lda wbank                   ; put the weight stream back at $8000
+    ora #$80
+    sta MMC5_PRG8000
     ldx xsave
     rts
 
@@ -1128,57 +1329,75 @@ attn_head:
     AMARK 37
 
     ; ---- AV ----------------------------------------------------------
+    ; d is the OUTER loop and t the inner one, which is what lets the
+    ; accumulator stay in A; see the avchain comment in the RAMKERN segment.
     AMARK 40
-    ldy hbase
+    jsr av_patch                ; P4HI -> the chain's multiply-row operands
+    lda #VBANK
+    sta MMC5_RAMBANK
+    ldy curpos                  ; enter the chain so it covers t = curpos..0
+    lda avent_lo,y
+    sta avp
+    lda avent_hi,y
+    sta avp+1
+    ldy curlay
+    lda mul64lo,y
+    clc
+    adc hbase
+    sta yoff                    ; y index into V[t] = curlay*64 + d
+    lda hbase
+    sta t1
+@d:
     lda #0
-@zero:
-    sta AVL,y
-    sta AVH,y
-    iny
-    cpy hend
-    bne @zero
-
-    lda #0
-    sta tcnt
-@group:
-    ldy hbase
-    lda #0
-@z2:
-    sta ACC8,y
-    iny
-    cpy hend
-    bne @z2
-    lda #0
-    sta gi
-@avt:
-    lda #1
-    sta kvsel
-    lda tcnt
-    sta kvt
-    jsr kv_ptr
-    ldy tcnt
-    lda P4HI,y
-    sta ph
-    jsr acc_av
-    inc tcnt
-    inc gi
-    lda tcnt
-    cmp curpos
-    beq @cont
-    bcs @flush
-@cont:
-    lda gi
-    cmp #8
-    bcc @avt
-@flush:
-    jsr av_fold
-    lda tcnt
-    cmp curpos
-    beq @group
-    bcc @group
-    jsr av_quant
+    sta totL
+    sta totH
+    ldy yoff
+    clc                         ; A = 0, C = 0: the chain's contract
+    jsr av_call
+    AMARK 39
+    sec
+    lda totL
+    sbc avbL
+    sta totL
+    lda totH
+    sbc avbH
+    sta totH
+    jsr requant_k4
+    ldy t1
+    sta ATTV,y
+    inc yoff
+    inc t1
+    lda t1
+    cmp hend
+    bne @d
+    lda #KVBANK
+    sta MMC5_RAMBANK
     AMARK 41
     rts
+
+av_call:
+    AMARK 38
+    jmp (avp)
+
+; --- copy the 20 softmax nibbles into the chain's multiply-row operands ----
+; tbl_mul is page aligned, so the low byte of tbl_mul + (p<<4) IS P4HI[t].
+av_patch:
+.repeat NCTX, t
+    lda P4HI + t
+    sta .ident (.sprintf ("avop%02d", t))
+.endrepeat
+    rts
+
+; entry address of the chain unit that handles t = curpos
+avent_lo:
+.repeat NCTX, p
+    .byte <(.ident (.sprintf ("avu%02d", NCTX - 1 - p)))
+.endrepeat
+avent_hi:
+.repeat NCTX, p
+    .byte >(.ident (.sprintf ("avu%02d", NCTX - 1 - p)))
+.endrepeat
+    .assert <avp <> $FF, error, "avp would hit the JMP-indirect page bug"
 
 ; ---- score = sum_j mul[(q<<4)|k] - MULBIAS*NDHEAD, blocked by 8 -----------
 dot_qk:
@@ -1221,86 +1440,6 @@ dot_qk:
     sbc #>(MULBIAS * NDHEAD)
     sta scH
     AMARK 33
-    rts
-
-; ---- add one position's products into the 8-bit block accumulators -------
-acc_av:
-    AMARK 38
-    ldy hbase
-    lda #NDHEAD / 8
-    sta blkn
-    clc
-@blk:
-    .repeat 8
-    lda (kptr),y
-    ora ph
-    tax
-    lda ACC8,y
-    adc tbl_mul,x
-    sta ACC8,y
-    iny
-    .endrepeat
-    dec blkn
-    beq @out
-    jmp @blk                ; the unrolled block is >127 bytes
-@out:
-    AMARK 39
-    rts
-
-av_fold:
-    ; uses X, not Y: the 6502 has no `inc abs,y`.  X is free here because
-    ; `attention` already saved the weight-stream offset in xsave.
-    ldx hbase
-@l:
-    lda ACC8,x
-    clc
-    adc AVL,x
-    sta AVL,x
-    bcc @1
-    inc AVH,x
-@1:
-    inx
-    cpx hend
-    bne @l
-    rts
-
-; ---- att[j] = quant(AV[j] - MULBIAS*(curpos+1), 4) ------------------------
-av_quant:
-    lda curpos
-    clc
-    adc #1
-    sta t0
-    lda #0
-    sta sumL
-    sta sumH
-    ldy t0
-@mul:
-    lda sumL
-    clc
-    adc #MULBIAS
-    sta sumL
-    lda sumH
-    adc #0
-    sta sumH
-    dey
-    bne @mul
-
-    ldy hbase
-@l:
-    sty t1
-    sec
-    lda AVL,y
-    sbc sumL
-    sta totL
-    lda AVH,y
-    sbc sumH
-    sta totH
-    jsr requant_k4
-    ldy t1
-    sta ATTV,y
-    iny
-    cpy hend
-    bne @l
     rts
 
 ; ===========================================================================
