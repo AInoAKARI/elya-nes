@@ -1461,10 +1461,11 @@ at spelling (`happpy`, `loook`, `beauticked`, `broom` for `brave`); the
 
 Five independent measurements, and they agree.
 
-**1. The aggregate loss got worse.** 1.4347 nats/char at `T = 85` against
-1.4133 at `T = 20`, same recipe, same weights budget, same corpus. The longer
+**1. The aggregate loss got worse, at both seeds.** 1.4347 and 1.4318
+nats/char at `T = 85` against 1.4133 and 1.4149 at `T = 20` - same recipe, same
+weights budget, same corpus, **and the two groups do not overlap**. The longer
 model saw 4.25x more tokens per step and is flattered by the averaging window,
-and it still lost by 2.4 times the seed noise.
+and it still lost by six times the within-context seed spread.
 
 **2. The loss-versus-context curve has an interior optimum at 20.** At matched
 12,000 steps: `T = 10` 1.5856, `T = 20` **1.5292**, `T = 40` 1.5347, `T = 85`
