@@ -143,6 +143,11 @@ def build_exptab():
 
 EXPTAB = build_exptab()
 
+# tbl_p geometry: one row per shift count, SM_PROW entries covering every
+# value the exp table can produce.
+SM_PROW = max(EXPTAB) + 1
+SM_KROWS = 9            # sum(e) <= T*max(EXPTAB), so kk can never exceed 8
+
 
 def softmax_q(scores):
     """Quantised softmax: max-shift, 15-entry exp table, power-of-two
@@ -436,6 +441,26 @@ def pack(model, outdir):
     w("tbl_q3.bin", build_qtbl(W2_SHIFT))
     w("tbl_q4.bin", build_qtbl(AV_SHIFT))
     w("tbl_exp.bin", EXPTAB)
+    # softmax score difference -> exp bucket, in one lookup instead of a
+    # SM_SHIFT-long arithmetic shift loop.  Indexed by the LOW byte of the
+    # 16-bit difference; only valid when the high byte is $FF, i.e. the
+    # difference is in [-256,-1].  The ROM handles diff == 0 and
+    # diff <= -257 as constants, which is why they are emitted below.
+    sm = []
+    for b in range(256):
+        d = (b - 256) >> SM_SHIFT
+        sm.append(EXPTAB[max(d, -14) + 14])
+    w("tbl_sm.bin", sm)
+    # min(e >> kk, 7) << 4, one row per kk.  kk is fixed for a whole softmax,
+    # so the ROM picks the row once and the per-position shift loop goes away.
+    # e never exceeds max(EXPTAB), so SM_PROW entries per row is enough, and
+    # every row from kk = 7 up is all zero - which is why clamping the row
+    # index at SM_KROWS-1 is exact rather than approximate.
+    pt = []
+    for kk in range(SM_KROWS):
+        for e in range(SM_PROW):
+            pt.append(min(e >> kk, 7) << 4)
+    w("tbl_p.bin", pt)
     # entry offset into a 16-entry chain for a list of length n, and the
     # number of blocks that list needs
     w("tbl_entoff.bin", [((BLOCK - (n % BLOCK)) % BLOCK) * 6 for n in range(256)])
@@ -454,6 +479,10 @@ def pack(model, outdir):
         f.write("W2SHIFT  = %d\n" % W2_SHIFT)
         f.write("AVSHIFT  = %d\n" % AV_SHIFT)
         f.write("SMSHIFT  = %d\n" % SM_SHIFT)
+        f.write("EXP_TOP  = %d\n" % EXPTAB[14])
+        f.write("EXP_BOT  = %d\n" % EXPTAB[0])
+        f.write("SM_PROW  = %d\n" % SM_PROW)
+        f.write("SM_KROWS = %d\n" % SM_KROWS)
 
     nnz = sum(len(p) + len(n) for p, n in rows)
     return {

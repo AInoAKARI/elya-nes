@@ -183,6 +183,7 @@ nbL:     .res 1              ; -(MULBIAS * live count), pre-negated so the AV
 nbH:     .res 1              ; loop can seed the accumulator instead of
                              ; subtracting afterwards.  NOT sumL/sumH, which
                              ; softmax overwrites between here and the AV pass
+smp:     .res 2              ; the tbl_p row for this softmax's kk
 avn:     .res 1              ; number of positions with p != 0
 avnt:    .res 1              ; curpos + 1
 ucur:    .res 1              ; chain unit cursor, filled from the top down
@@ -247,6 +248,12 @@ tbl_blkcnt: .incbin "out/model/tbl_blkcnt.bin"
     .align $100
 tbl_step:   .incbin "out/model/tbl_step.bin"
 tbl_exp:    .incbin "out/model/tbl_exp.bin"
+
+; The softmax tables live in the $A000 bank, which is mapped throughout
+; softmax; the $C000 table bank has no room left.
+.segment "SMTABLES"
+tbl_sm:     .incbin "out/model/tbl_sm.bin"     ; page aligned by the linker
+tbl_p:      .incbin "out/model/tbl_p.bin"
 
 ; ===========================================================================
 ; Self-modified kernels.  Assembled for $8000 (PRG-RAM bank 5) but STORED in
@@ -428,7 +435,8 @@ reset:
     sta MMC5_RAMBANK
 
     ; copy the self-modified kernels into PRG-RAM bank 5 at $8000
-    .assert <__RAMKERN_LOAD__ = 0, lderror, "RAMKERN load is not page aligned"
+    ; the copy is a plain linear 16-bit move, so the SOURCE may sit anywhere;
+    ; only the destination has to be page aligned for the loop's `ldy #0`.
     .assert <__RAMKERN_RUN__ = 0, lderror, "RAMKERN run is not page aligned"
     .assert __RAMKERN_RUN__ = $8000, lderror, "RAMKERN must run at $8000"
     lda #KERNBANK
@@ -1585,38 +1593,27 @@ softmax:
     sta sumL
     sta sumH
 @e:
+    ; diff = SCOR[t] - best, always <= 0.  The high byte decides which of
+    ; three cases applies and the low byte indexes the table, so the whole
+    ; shift-and-clamp is one 4-cycle load.
     ldy tcnt
     sec
     lda SCORL,y
     sbc bestL
-    sta totL
+    tax
     lda SCORH,y
     sbc bestH
-    sta totH
-    ldx #3
-@sh:
-    lda totH
-    cmp #$80                ; C = sign bit, so ror is an arithmetic shift
-    ror totH
-    ror totL
-    dex
-    bne @sh
-    lda totH
-    beq @use
+    beq @zero               ; diff == 0
     cmp #$FF
-    bne @clampd
-    lda totL
-    cmp #<(-14)
-    bcs @use
-@clampd:
-    lda #<(-14)
-    sta totL
-@use:
-    lda totL
-    clc
-    adc #14
-    tax
-    lda tbl_exp,x
+    bne @far                ; diff <= -257: past the bottom of the table
+    lda tbl_sm,x
+    bcs @have               ; sbc left C set: diff > -32768, always true here
+@zero:
+    lda #EXP_TOP
+    bne @have               ; EXP_TOP is 64, never zero
+@far:
+    lda #EXP_BOT
+@have:
     ldy tcnt
     sta EXPE,y
     clc
@@ -1646,27 +1643,24 @@ softmax:
     inc kk
     jmp @kkl
 @kkdone:
+    lda kk                  ; rows from kk = 7 up are all zero, so clamping
+    cmp #SM_KROWS           ; the row index is exact, not an approximation
+    bcc @kok
+    lda #SM_KROWS - 1
+@kok:
+    tax
+    lda smrowlo,x
+    sta smp
+    lda smrowhi,x
+    sta smp+1
 
     lda #0
     sta tcnt
 @p:
     ldy tcnt
     lda EXPE,y
-    ldx kk
-    beq @noshift
-@sh2:
-    lsr a
-    dex
-    bne @sh2
-@noshift:
-    cmp #8
-    bcc @ok
-    lda #7
-@ok:
-    asl a
-    asl a
-    asl a
-    asl a
+    tay
+    lda (smp),y             ; = min(e >> kk, 7) << 4
     ldy tcnt
     sta P4HI,y
     inc tcnt
@@ -1675,6 +1669,16 @@ softmax:
     beq @p
     bcc @p
     rts
+
+smrowlo:
+.repeat SM_KROWS, k
+    .byte <(tbl_p + k * SM_PROW)
+.endrepeat
+smrowhi:
+.repeat SM_KROWS, k
+    .byte >(tbl_p + k * SM_PROW)
+.endrepeat
+    .assert <smp <> $FF, error, "smp must not straddle a zero page wrap"
 
 ; ===========================================================================
 ; output head: NVOCAB raw rows, argmax with ties going to the lowest index
