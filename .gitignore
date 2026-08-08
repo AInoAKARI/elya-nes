@@ -7,3 +7,5 @@ data/TinyStories-*.txt
 data/*.npy
 runs/*_ckpt.npz
 runs/*_ckpt.json
+out/sv.nes
+out/sv.o

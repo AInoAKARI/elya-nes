@@ -669,7 +669,14 @@ reset:
     lda #NTOKGEN
     sta res_ntok
     ; also park the result in battery-backed PRG-RAM, so an emulator with no
-    ; scripting hook (ares) can be cross-checked through its .sav file
+    ; scripting hook (ares) can be cross-checked through its .sav file.
+    ; With the attention kernels the block lives in the key bank, which is
+    ; already selected here.  On the legacy path the bank last selected is
+    ; whichever KV row was touched last, so it has to be named.
+.if .not FASTATTN
+    lda #KVBANK0 + KVLAST   ; the sav block lives in the LAST KV bank
+    sta MMC5_RAMBANK
+.endif
     ldx #0
 @sav:
     lda savmagic,x
