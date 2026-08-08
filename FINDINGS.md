@@ -1305,7 +1305,7 @@ model was trained with; `T` is the only difference.**
 | | T = 20 (shipped) | T = 85 (this) |
 |---|---|---|
 | fit / val | 2.0431 / 2.0546 | 2.0795 / **2.0856** |
-| **val nats per character** | **1.4133** | **1.4346** |
+| **val nats per character** | **1.4133** | **1.4347** |
 | uniform baseline | 2.861 nats/char | 2.861 nats/char |
 | nonzero weights | 52,207 (0.5098) | **52,186 (0.5096)** |
 | stream image | 57,344 B, 7 banks | 57,344 B, 7 banks |
@@ -1313,7 +1313,7 @@ model was trained with; `T` is the only difference.**
 | characters of context | ~29 | **~124** |
 | ROM image | 90,128 B | 106,512 B |
 
-**Quadrupling the context made the model 0.0213 nats/char WORSE** - 1.5%,
+**Quadrupling the context made the model 0.0214 nats/char WORSE** - 1.5%,
 against a measured seed noise of 0.009 nats/char. It saw 4.25x as many tokens
 per optimisation step to get there, and the averaging window flatters it.
 
@@ -1435,7 +1435,7 @@ the `T = 20` cartridge was never asked to run that long. So here is the same
 the shipped model, same seeds:
 
 ```
-seed      T = 20 (shipped, 1.4133)              T = 85 (new, 1.4346)
+seed      T = 20 (shipped, 1.4133)              T = 85 (new, 1.4347)
 'b'    -> 'big friends. she was so hap'          'ban who was beauticked a'
 ' '    -> ' came to playing with hi'             ' with his flower him. he wa'
 ','    -> ', she said, "that's a proud '         ', she was very happpy. she said'
@@ -1461,7 +1461,7 @@ at spelling (`happpy`, `loook`, `beauticked`, `broom` for `brave`); the
 
 Five independent measurements, and they agree.
 
-**1. The aggregate loss got worse.** 1.4346 nats/char at `T = 85` against
+**1. The aggregate loss got worse.** 1.4347 nats/char at `T = 85` against
 1.4133 at `T = 20`, same recipe, same weights budget, same corpus. The longer
 model saw 4.25x more tokens per step and is flattered by the averaging window,
 and it still lost by 2.4 times the seed noise.
@@ -1538,12 +1538,10 @@ long-range head the model *did* learn unable to pay for itself.
 ## What could not be done, and what is thinner than it looks
 
 * **The headline 60,000-step pair is one seed each.** The `T = 20` vs `T = 85`
-  aggregate gap is 0.0213 nats/char against a measured seed noise of 0.009 -
-  **2.4x**, which is a real margin but not a comfortable one. The supporting
-  evidence is much stronger than the headline: the matched-position gap at
-  positions 10-19 is 0.0713 nats/char (7.9x seed noise) and the 12,000-step
-  sweep gap is 0.0483 (5.4x). A seed-2 replicate of both 60,000-step arms is
-  running as this is written and its result is recorded below.
+  aggregate gap is 0.0214 nats/char against the 0.009 seed noise measured at
+  12,000 steps - 2.4x, which would be a real margin but not a comfortable one.
+  **A seed-2 replicate of both arms was therefore run and is reported below;
+  it closes this gap.**
 * **`AV_SHIFT`, `K_SHIFT` and `W2_SHIFT` were not re-laddered at `T = 85`.**
   `AV_SHIFT = 2` was the measured optimum at `T = 20` and the accumulator bound
   that motivated it (`sum_t p_t <= 8`, values in `-7..7`, so `|acc| <= 14`) is
@@ -1625,7 +1623,7 @@ constant term. Within a model the relation is exact by construction.
 ## What is committed, and which cartridge is the cartridge
 
 `out/nn.nes` remains the **T = 20** cartridge, because it is the better model:
-1.4133 nats/char against 1.4346, at 0.689 s/token against 0.966. The `T = 85`
+1.4133 nats/char against 1.4347, at 0.689 s/token against 0.966. The `T = 85`
 build is committed alongside it as `out/nn_t85.nes` (and `out/nnprof_t85.nes`)
 so the result can be re-run, not because it is an improvement. Shipping the
 longer-context ROM would be shipping a slower cartridge that says less.
@@ -1651,3 +1649,36 @@ random-init nn.nes: TOKENS MATCHING: 19/19 -> EXACT, mean 1,226,055 cycles/token
 The instrument, the datasheet calibration and the MMC5 primitive suite are all
 unchanged by this work, and the four PRG-RAM banks the extension depends on are
 re-confirmed from the ROM rather than assumed.
+
+## The seed-2 replicate: the two context lengths do not overlap
+
+Both 60,000-step arms rerun at seed 2, everything else identical:
+
+| T | seed 1 | seed 2 | mean | within-T spread |
+|---|---|---|---|---|
+| **20** | **1.4133** | **1.4149** | **1.4141** | 0.0016 |
+| **85** | **1.4347** | **1.4318** | **1.4333** | 0.0029 |
+
+nats per character, held out, lower is better.
+
+**The worst `T = 20` run (1.4149) still beats the best `T = 85` run (1.4318) by
+0.0169** - about six times the larger of the two within-context spreads, and
+**the two groups do not overlap at all**. The mean gap is 0.0192 nats/char.
+
+Note also that seed noise at 60,000 steps (0.0016-0.0029) is far below the
+0.009 measured at 12,000 steps earlier in this journal; the cosine schedule
+anneals to the same place from either seed. The earlier 0.009 figure was used
+conservatively above and it was too pessimistic, which only strengthens the
+12,000-step sweep result as well.
+
+**Incident, recorded because it nearly went unnoticed.** The `T = 85` seed-2
+job was accidentally launched **twice** - a shell `cd X && nohup A &` puts the
+`cd` in the backgrounded subshell, so the following line ran from the wrong
+directory and I relaunched, leaving two identical processes writing to the same
+log and the same checkpoint files. They were found by reading
+`/proc/<pid>/fd/1` when the run was inexplicably slow, and the older one was
+killed at step ~40,000. Both were the same seed on the same data, so the
+result is not in question, but the wall-clock figures in
+`out/t85_final_s2.log` are two processes sharing one GPU and are **not** a
+speed measurement. The final npz was written by a single surviving process
+after the kill.
