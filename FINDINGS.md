@@ -2203,9 +2203,10 @@ cheap way round:
 * Pack both caches with no padding at all and they need
   `L * T * 2 * D = 3 * 85 * 2 * 64 = 32,640` bytes. Measured PRG-RAM is
   **32,768** bytes in four banks. So at `T = 85` the caches alone leave
-  **128 bytes**, and the self-modified kernels need a whole bank. There is no
-  arrangement of four banks that holds a 85-position K, a 85-position V and
-  writable code.
+  **128 bytes**. The kernels are **645 bytes** (`RAMKERN` in the T = 21 link
+  map, `$8000-$8284`), and they have to be mapped at `$8000`, which takes a
+  whole 8 KB bank whatever their size. There is no arrangement of four banks
+  that holds an 85-position K, an 85-position V and writable code.
 
 That is the incompatibility, and it is arithmetic, not preference.
 
