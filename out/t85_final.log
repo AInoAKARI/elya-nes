@@ -3,3 +3,4 @@ t85_final_tau0.75            step  5000  fit 2.5069  val 2.5065  density 0.5372 
 t85_final_tau0.75            step 10000  fit 2.4048  val 2.4107  density 0.5232  1700s
 t85_final_tau0.75            step 15000  fit 2.3842  val 2.3806  density 0.5172  2643s
 t85_final_tau0.75            step 20000  fit 2.3359  val 2.3468  density 0.5124  3508s
+t85_final_tau0.75            step 25000  fit 2.3170  val 2.3141  density 0.5087  4226s

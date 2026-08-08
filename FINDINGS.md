@@ -1239,13 +1239,18 @@ here rather than quietly replaced.)
 
 ### tau still has its interior optimum at 0.75
 
-| arm | T | val nats/token | val/char | density | fits 7 banks? |
-|---|---|---|---|---|---|
-| tau 0.75 | 85 | 2.2933 | **1.5772** | 0.5346 | yes |
-| tau 1.00 | 85 | 2.3081 | **1.5874** | 0.4105 | yes |
+| arm | T | val nats/token | val/char | density | nnz | fits 7 banks? |
+|---|---|---|---|---|---|---|
+| tau 0.50 | 85 | 2.2904 | **1.5752** | 0.6574 | 67,313 | **NO** |
+| **tau 0.75** | 85 | 2.2933 | **1.5772** | 0.5346 | 54,743 | **yes** |
+| tau 1.00 | 85 | 2.3081 | **1.5874** | 0.4105 | 42,033 | yes |
 
-Same ordering as at `T = 20`, where 0.75 beat 1.00 by 0.030 nats/char against
-0.010 here. The `tau = 0.50` arm is still running and is already at density
-0.669, which does not fit the seven-bank window - exactly as at `T = 20`,
-where 0.50 gave 0.674. **The tau finding carries over: 0.75 remains the
-interior optimum and it still lands just inside the ROM's capacity.**
+Same shape as at `T = 20`. tau 0.50 edges tau 0.75 by 0.002 nats/char, which
+is a fifth of the measured 0.009 seed noise and therefore nothing, and it needs
+67,313 index bytes against the seven-bank window's 57,232 - it does not fit the
+cartridge, exactly as at `T = 20` where 0.50 gave density 0.674. tau 1.00 is
+clearly worse at both context lengths.
+
+**The tau finding carries over unchanged: 0.75 is the best arm that fits, and
+it still lands just inside the ROM's capacity** (54,743 of 57,232 index bytes,
+2,489 to spare - at `T = 20` it was 55,711 with 1,521 to spare).
