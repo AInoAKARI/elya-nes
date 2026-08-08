@@ -1353,9 +1353,16 @@ change was proved correct before a trained model existed.
 | position 18 / 42 | 1,366,939 | 1,738,908 (pos 42) | |
 | last position | 1,366,939 (pos 18) | **2,360,222 (pos 83)** | **+72.7%** |
 | **mean over the run** | **1,233,099** | **1,729,505** | **+40.3%** |
+| mean, same ROM code | 1,238,160 | 1,729,505 | +39.7% |
 | seconds per token, mean | 0.6890 | **0.9663** | |
+| | | | |
 | seconds, last position | 0.7638 | **1.3187** | |
 | whole generation | 13.09 s (19 tokens) | **81.17 s** (84 tokens) | |
+
+(The `T = 20` column is the shipped cartridge, built before the ROM was
+generalised. The generalised ROM measures 1,238,160 at `T = 20` - the +0.41%
+banking overhead recorded earlier - so the like-for-like figure is +39.7%.
+Both are given rather than picking whichever is more flattering.)
 
 Per-stage, PROFILE build, marker overhead counted and subtracted
 (`out/T85_FINAL_PROFILE.txt`):
