@@ -59,7 +59,11 @@ formulation.
 | layers `L` | 3 |
 | heads `H` / d_head | 2 / 32 |
 | d_ff `F` | 128 |
-| context `T` | 20 |
+| context `T` | **20 or 85** - a build parameter (`NES_T` / `-DNCTX`) |
+
+`T` is the only shape knob that varies, and the two values are the two ends of
+what the cartridge can hold: 20 fills one PRG-RAM bank, 85 fills all four.
+Everything else below is independent of it.
 
 Ternary weight count:
 
@@ -88,61 +92,95 @@ shape is within 7% of that, so the two are directly comparable.)
 KV cache is `L x T x 2 x D` bytes, one byte per 4-bit activation:
 
 ```
-3 x 20 x 2 x 64 = 7,680 bytes
+T = 20:  3 x 20 x 2 x 64 =  7,680 bytes   93.75% of ONE 8 KB PRG-RAM bank
+T = 85:  3 x 85 x 2 x 64 = 32,640 bytes   99.61% of ALL FOUR
 ```
 
-That is **93.75% of one 8 KB PRG-RAM bank**, and it is why `T = 20` rather
-than 24 (24 would need 9,216 > 8,192 and split the cache across banks in the
-middle of the attention loop).
-
 Measured PRG-RAM is **32 KB in 4 banks at `$5113 = 4,5,6,7`** (declaring more
-in the iNES header still yields 4 - reconfirmed this run). So the whole 32 KB
-would support
+in the iNES header still yields 4 - reconfirmed this run), so
 
 ```
 T_max = 32768 / (L x 2 x D) = 32768 / 384 = 85 positions
 ```
 
-before touching system RAM. The port uses one bank; the other three are
-headroom.
+is a hard ceiling, not a preference. `T = 20` was chosen originally so that the
+cache fitted one bank and the attention loop never had to switch mid-flight;
+`T = 85` gives that up and pays for a bank register write per KV row address.
 
-**KV row alignment.** Rows are `D = 64` bytes and are laid out at
-`$6000 + (l*T*2 + t*2 + kv) * 64`, i.e. every row is **64-byte aligned**. The
-attention inner loop reads `(kptr),y` with `y < 64`, and a 64-byte-aligned
-base plus `y < 64` **cannot cross a page**, so the measured `$6000` page-cross
-+1 never fires. Full 256-byte alignment would give the same guarantee at 4x
-the memory cost, so 64-byte alignment is used deliberately.
+**KV row alignment, and why banking is safe.** Rows are `D = 64` bytes, laid
+out at row index
+
+```
+row = (l*2 + kv) * T + t          layout [layer][k|v][t]
+addr = $6000 + (row & 127) * 64,  $5113 = 4 + (row >> 7)
+```
+
+`8192 / 64 = 128` rows fill a bank **exactly**, so a row can never straddle a
+bank; and every row is 64-byte aligned, so `(kptr),y` with `y < 64` cannot
+cross a page and the measured `$6000` page-cross +1 never fires. Both
+guarantees are the same ones the one-bank version relied on, and both survive
+the extension unchanged - which is the entire reason 64 bytes was chosen over
+full 256-byte alignment.
+
+The layout is `[layer][k|v][t]` rather than the original `[layer][t][k|v]` so
+that the score loop and the AV loop walk **contiguous** rows in `t`. Each such
+loop therefore crosses a bank boundary at most once instead of alternating
+between two banks on every position.
 
 ### System RAM map (2 KB)
+
+The four per-position arrays are `T` entries each: 128 bytes at `T = 20`,
+**340** at `T = 85`. That does not fit page 7 alongside the 16-bit AV
+accumulators, so the map is derived from `T`:
 
 | range | use |
 |---|---|
 | `$0000-$00FF` | zero page: stream pointers, counters, 16-bit accumulators |
 | `$0100-$01FF` | stack |
-| `$0200-$02FF` | BSS: results, logits scratch (linker-capped, see below) |
+| `$0200-$02FF` | BSS: `res_tokens` (96), `res_ntok`, `P4HI` (T) - linker-capped |
 | `$0300` | marker port (instrument) |
 | `$0400-$04FF` | **ACTB** - biased activation page, page-aligned, the `adc ACTB,y` target |
-| `$0500-$05FF` | output/staging page (pre-bias), page-aligned |
-| `$0600-$06FF` | q / k / v / attention scratch |
-| `$0700-$07FF` | attention probabilities, misc |
+| `$0500-$057F` | OUTB - signed matmul output, up to `F = 128` entries |
+| `$0580-$05BF` | XVEC - the residual stream |
+| `$05C0-$05FF` | Q4HI - `(q & 15) << 4` |
+| `$0600-$063F` | ATTV - attention output |
+| `$0640-$067F` | ACC8 - 8-bit AV block accumulators |
+| `$0680-$06FF` | AVL / AVH - 16-bit AV accumulators |
+| `$0700-$07FF` | SCORL, SCORH, EXPE - `T` bytes each, laid end to end |
+
+Every base is chosen so that `base_lo + max_index <= 255`: **no indexed access
+in this map crosses a page.** That is a cycle per access, not a correctness
+issue, but it is measurable and it was avoidable.
 
 `$0400` is a hard constant, not a BSS symbol, and the BSS memory area is
 capped at `$0200-$02FF` in the linker config so that a result slot growing
 into `$0300` or `$0400` is a **link error**, not a silent collision. (A silent
 collision of exactly this kind previously made banks read back ROM signatures
-and looked like an emulator fault.)
+and looked like an emulator fault.) `P4HI` is deliberately a BSS symbol rather
+than a constant so that the cap covers it too.
+
+The battery-backed result block (`"ELYA"`, count, token ids) lives in the tail
+of the **last** KV bank. At `T = 85` the cache leaves 128 bytes there, and the
+`-DDEBUG` snapshot pages have nowhere to go, so that build refuses to assemble
+rather than quietly overwriting the cache.
 
 ## 3. PRG-ROM layout
 
-256 KB PRG = 32 banks of 8 KB, MMC5 PRG mode 3.
+96 KB PRG in twelve 8 KB banks, MMC5 PRG mode 3.
 
 | window | reg | contents |
 |---|---|---|
-| `$6000-$7FFF` | `$5113 = 4` | PRG-RAM: KV cache |
+| `$6000-$7FFF` | `$5113 = 4..7` | PRG-RAM: KV cache, **switched per row at `T = 85`** |
 | `$8000-$9FFF` | `$5114` | **weight stream window**, slides 0..N |
-| `$A000-$BFFF` | `$5115` | embedding + positional table (fixed) |
-| `$C000-$DFFF` | `$5116` | spare (fixed) |
+| `$A000-$BFFF` | `$5115` | embedding **or** positional table, switched once per token |
+| `$C000-$DFFF` | `$5116` | row headers + lookup tables (fixed) |
 | `$E000-$FFFF` | `$5117` | **fixed code bank**: kernel, page chains, tables, vectors |
+
+The embedding is `V*D = 4,096` bytes and the positional table is `T*D`, which
+at `T = 85` is 5,440. Together that is 9,536 > 8,192, so they no longer share
+a bank: `embed_pos` reads the embedding row, switches `$5115`, and adds the
+positional row in place. Two bank writes per token, 12 cycles, against ~1.3
+million. One spare bank keeps the image a whole number of 16 KB iNES units.
 
 ### Weight stream format
 
@@ -237,7 +275,7 @@ Per token:
 |---|---|---|---|
 | ternary gathers | 51,200 | ~10 | ~512,000 |
 | output requantise (16-bit -> 4-bit) | 1,408 | ~40 | ~56,000 |
-| attention MACs (QK + AV, full context) | 7,680 | ~23 | ~177,000 |
+| attention MACs (QK + AV, full context, `T = 20`) | 7,680 | ~23 | ~177,000 |
 | softmax / residual / misc | - | - | ~40,000 |
 | bank switches | 6 | 6 | 42 |
 | **predicted total** | | | **~810,000** |
@@ -250,6 +288,14 @@ because sign separation means a zero weight costs **nothing at all** - it is
 simply absent from both index lists - so the cost scales with **nnz**, not
 with the weight count. Whether that survives contact with a real measurement
 is exactly what the kernel measurement is for.
+
+**How that scales with `T`.** Only the attention row moves, and it moves as
+`T^2`: `L*H*(p+1)*DH*2` MACs at position `p`, so `7,680` at `T = 20`'s last
+position and `32,640` at `T = 85`'s. Everything else in the table is constant.
+Since the attention term is the only one that grows, the *mean* cost per token
+grows much less than the peak does - the mean sees `(p+1)` averaged over the
+run, i.e. about half of full context either way. The measured figures are in
+FINDINGS; this paragraph is the prediction they are checked against.
 
 ## 5. Exactness
 
@@ -274,9 +320,26 @@ specification. Both sides implement, bit for bit:
 **Requantise shifts.** `K_SHIFT`, `W2_SHIFT`, `AV_SHIFT` and `SM_SHIFT` are
 now generated by `host/ref.py` into `out/model/shifts.inc`, which `rom/nn.s`
 includes, so the specification and the kernel cannot hold different values.
-`AV_SHIFT` was 4 in the first cut and is now 1: the attention accumulator is
-provably bounded by 14, so a shift of 4 left it with two reachable output
-levels. See FINDINGS.
+`AV_SHIFT` was 4 in the first cut and is now **2**: the attention accumulator
+is provably bounded by 14, so a shift of 4 left it with two reachable output
+levels, and the provably-correct shift of 1 measured *worst* of the ladder.
+See FINDINGS. (This paragraph said "is now 1" until 2026-08-08; the shipped
+value has been 2 since the ladder was run.) The context length `T` is stamped
+into the npz the same way and for the same reason.
+
+**What the quantised softmax can express, and why it bounds long context.**
+The normalisation picks the smallest `kk` with `S >> kk <= 8` and then clamps
+each entry to `0..7`, so
+
+```
+sum_t p_t <= 8    with every p_t an integer in 0..7
+```
+
+**at most 8 of the T positions can carry any attention weight at all**, and
+that ceiling does not move when `T` does. Extending the window extends what
+the model may look at, not how much it may look at. This is a property of the
+kernel, stated here so that a context result can be read against it rather
+than around it.
 
 The bar is a **bit-exact match of every generated token id over 16+ tokens**,
 not a 3-token spot check - a 3-token check passed two genuinely broken changes
