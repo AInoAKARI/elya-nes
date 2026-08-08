@@ -27,15 +27,17 @@ cache spread across all four banks. Retrained on the identical recipe:
 
 | | T = 20 | T = 85 |
 |---|---|---|
-| val nats/char | **1.4133** | **1.4347** (worse) |
+| val nats/char, seed 1 / seed 2 | **1.4133 / 1.4149** | **1.4347 / 1.4318** (worse) |
 | ROM vs host | 57/57 tokens exact | **252/252 tokens exact** |
 | mean cycles/token | 1,233,099 | **1,729,505** (+40%) |
 | attention share, last position | 22.0% | **54.1%** |
 | seconds/token, last position | 0.764 | **1.319** |
 
-The attention did learn to reach - layer 2's mean attention distance went from
-0.91 to 7.82 and 13.7% of its mass now lands beyond what `T = 20` could see -
-and the loss got **worse** anyway. Held-out loss is flat from about position 10
+Two seeds each, and **the two groups do not overlap**: the worst `T = 20` run
+beats the best `T = 85` run by 0.0169 nats/char, six times the within-context
+seed spread. The attention did learn to reach - layer 2's mean attention
+distance went from 0.91 to 7.82 and 13.7% of its mass now lands beyond what
+`T = 20` could see - and the loss got **worse** anyway. Held-out loss is flat from about position 10
 (~15 characters) in every model that has room to show it, and at matched
 positions the short-context model wins everywhere. **The ceiling is capacity,
 not context.** Full argument in `FINDINGS.md`.
