@@ -1114,7 +1114,7 @@ vocabulary as the `T = 20` table above. The only difference is the context.
 | arm | T | val nats/token | **val/char** | density | nnz | banks | fits 7? |
 |---|---|---|---|---|---|---|---|
 | twn tau 0.75 | 20 | 2.2435 | **1.5432** | 0.5441 | 55,711 | 7 | yes |
-| twn tau 0.75 | **85** | 2.2933 | **1.5772** | 0.5346 | 54,743 | 7 | yes |
+| twn tau 0.75 | **85** | 2.2933 | **1.5775** | 0.5346 | 54,743 | 7 | yes |
 
 At matched training, the 85-token model is **0.034 nats/char worse** than the
 20-token one - and it saw 4.25x as many tokens per step to get there. That is
@@ -1213,15 +1213,15 @@ same corpus, same vocabulary, same shifts - with **nothing changed but `T`**:
 
 | T | chars of context | val nats/token | **val nats/char** | density | nnz |
 |---|---|---|---|---|---|
-| 10 | ~15 | 2.3051 | **1.5854** | 0.5404 | 55,335 |
-| **20** | **~29** | **2.2231** | **1.5289** | 0.5373 | 55,018 |
-| 40 | ~58 | 2.2310 | **1.5344** | 0.5343 | 54,714 |
-| 85 | ~124 | 2.2933 | **1.5772** | 0.5346 | 54,743 |
+| 10 | ~15 | 2.3051 | **1.5856** | 0.5404 | 55,335 |
+| **20** | **~29** | **2.2231** | **1.5292** | 0.5373 | 55,018 |
+| 40 | ~58 | 2.2310 | **1.5347** | 0.5343 | 54,714 |
+| 85 | ~124 | 2.2933 | **1.5775** | 0.5346 | 54,743 |
 
 It is a U, and the minimum is at **20** - the value the cartridge already had.
 Going to 40 costs 0.0055 nats/char, going to 85 costs **0.0483**, which is more
 than five times the 0.009 nats/char seed noise measured earlier in this
-journal. Halving the context to 10 costs 0.0565, about the same as
+journal. Halving the context to 10 costs 0.0564, about the same as
 quadrupling it to 85.
 
 And the longer arms are being *flattered* by the averaging window (see above):
@@ -1241,9 +1241,9 @@ here rather than quietly replaced.)
 
 | arm | T | val nats/token | val/char | density | nnz | fits 7 banks? |
 |---|---|---|---|---|---|---|
-| tau 0.50 | 85 | 2.2904 | **1.5752** | 0.6574 | 67,313 | **NO** |
-| **tau 0.75** | 85 | 2.2933 | **1.5772** | 0.5346 | 54,743 | **yes** |
-| tau 1.00 | 85 | 2.3081 | **1.5874** | 0.4105 | 42,033 | yes |
+| tau 0.50 | 85 | 2.2904 | **1.5755** | 0.6574 | 67,313 | **NO** |
+| **tau 0.75** | 85 | 2.2933 | **1.5775** | 0.5346 | 54,743 | **yes** |
+| tau 1.00 | 85 | 2.3081 | **1.5877** | 0.4105 | 42,033 | yes |
 
 Same shape as at `T = 20`. tau 0.50 edges tau 0.75 by 0.002 nats/char, which
 is a fifth of the measured 0.009 seed noise and therefore nothing, and it needs
@@ -1305,7 +1305,7 @@ model was trained with; `T` is the only difference.**
 | | T = 20 (shipped) | T = 85 (this) |
 |---|---|---|
 | fit / val | 2.0431 / 2.0546 | 2.0795 / **2.0856** |
-| **val nats per character** | **1.4133** | **1.4344** |
+| **val nats per character** | **1.4133** | **1.4346** |
 | uniform baseline | 2.861 nats/char | 2.861 nats/char |
 | nonzero weights | 52,207 (0.5098) | **52,186 (0.5096)** |
 | stream image | 57,344 B, 7 banks | 57,344 B, 7 banks |
@@ -1313,7 +1313,7 @@ model was trained with; `T` is the only difference.**
 | characters of context | ~29 | **~124** |
 | ROM image | 90,128 B | 106,512 B |
 
-**Quadrupling the context made the model 0.0211 nats/char WORSE** - 1.5%,
+**Quadrupling the context made the model 0.0213 nats/char WORSE** - 1.5%,
 against a measured seed noise of 0.009 nats/char. It saw 4.25x as many tokens
 per optimisation step to get there, and the averaging window flatters it.
 
@@ -1435,7 +1435,7 @@ the `T = 20` cartridge was never asked to run that long. So here is the same
 the shipped model, same seeds:
 
 ```
-seed      T = 20 (shipped, 1.4133)              T = 85 (new, 1.4344)
+seed      T = 20 (shipped, 1.4133)              T = 85 (new, 1.4346)
 'b'    -> 'big friends. she was so hap'          'ban who was beauticked a'
 ' '    -> ' came to playing with hi'             ' with his flower him. he wa'
 ','    -> ', she said, "that's a proud '         ', she was very happpy. she said'
@@ -1461,14 +1461,14 @@ at spelling (`happpy`, `loook`, `beauticked`, `broom` for `brave`); the
 
 Five independent measurements, and they agree.
 
-**1. The aggregate loss got worse.** 1.4344 nats/char at `T = 85` against
+**1. The aggregate loss got worse.** 1.4346 nats/char at `T = 85` against
 1.4133 at `T = 20`, same recipe, same weights budget, same corpus. The longer
 model saw 4.25x more tokens per step and is flattered by the averaging window,
-and it still lost by 2.3 times the seed noise.
+and it still lost by 2.4 times the seed noise.
 
 **2. The loss-versus-context curve has an interior optimum at 20.** At matched
-12,000 steps: `T = 10` 1.5854, `T = 20` **1.5289**, `T = 40` 1.5344, `T = 85`
-1.5772 nats/char. Twenty is not a compromise the ROM forced; it is where this
+12,000 steps: `T = 10` 1.5856, `T = 20` **1.5292**, `T = 40` 1.5347, `T = 85`
+1.5775 nats/char. Twenty is not a compromise the ROM forced; it is where this
 model is best.
 
 **3. At matched positions the short-context model wins everywhere.** Both
@@ -1538,11 +1538,11 @@ long-range head the model *did* learn unable to pay for itself.
 ## What could not be done, and what is thinner than it looks
 
 * **The headline 60,000-step pair is one seed each.** The `T = 20` vs `T = 85`
-  aggregate gap is 0.0211 nats/char against a measured seed noise of 0.009 -
-  **2.3x**, which is a real margin but not a comfortable one. The supporting
+  aggregate gap is 0.0213 nats/char against a measured seed noise of 0.009 -
+  **2.4x**, which is a real margin but not a comfortable one. The supporting
   evidence is much stronger than the headline: the matched-position gap at
   positions 10-19 is 0.070 nats/char (7.8x seed noise) and the 12,000-step
-  sweep gap is 0.048 (5.4x). A seed-2 replicate of both 60,000-step arms is
+  sweep gap is 0.0483 (5.4x). A seed-2 replicate of both 60,000-step arms is
   running as this is written and its result is recorded below.
 * **`AV_SHIFT`, `K_SHIFT` and `W2_SHIFT` were not re-laddered at `T = 85`.**
   `AV_SHIFT = 2` was the measured optimum at `T = 20` and the accumulator bound

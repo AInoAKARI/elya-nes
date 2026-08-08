@@ -27,7 +27,7 @@ cache spread across all four banks. Retrained on the identical recipe:
 
 | | T = 20 | T = 85 |
 |---|---|---|
-| val nats/char | **1.4133** | **1.4344** (worse) |
+| val nats/char | **1.4133** | **1.4346** (worse) |
 | ROM vs host | 57/57 tokens exact | **252/252 tokens exact** |
 | mean cycles/token | 1,233,099 | **1,729,505** (+40%) |
 | attention share, last position | 22.0% | **54.1%** |
@@ -82,7 +82,7 @@ ROM that runs perfectly and says the wrong thing.
 | ROM vs host reference, T = 20 | **19/19 tokens EXACT**, at three independent seed tokens: **57/57** |
 | ROM vs host reference, T = 85 | **84/84 tokens EXACT**, at three independent seed tokens: **252/252** |
 | trained model (T = 20) | val **2.0546 nats/token = 1.4133 nats/char** (uniform 4.1589) |
-| trained model (T = 85) | val **2.0856 nats/token = 1.4344 nats/char** - longer context, worse |
+| trained model (T = 85) | val **2.0856 nats/token = 1.4346 nats/char** - longer context, worse |
 | nonzero weights | **52,207** of 102,400 (density 0.5098) |
 | cycles per token (T = 20) | 1,103,615 (pos 0) .. 1,366,939 (pos 18), mean **1,233,099** |
 | cycles per token (T = 85) | 1,104,175 (pos 0) .. 2,360,222 (pos 83), mean **1,729,505** |
