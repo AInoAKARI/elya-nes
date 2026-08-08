@@ -89,10 +89,12 @@ shape is within 7% of that, so the two are directly comparable.)
 
 ### The $6000 window arithmetic
 
-> **Superseded for the attention rewrite.** K and V no longer share one
-> interleaved cache; they want opposite layouts and live in separate PRG-RAM
-> banks. See "The attention kernels and their two caches" below. The total
-> is still one byte per 4-bit activation and still fits comfortably.
+> **This describes the LEGACY attention path only.** The attention kernels
+> replaced it: K and V no longer share one interleaved cache, they want
+> opposite layouts and live in separate PRG-RAM banks. See "The attention
+> kernels and their two caches" below. The layout described here is still
+> assembled, and is selected automatically for any `T` the kernels cannot
+> address - which is what keeps the `T = 85` experiment buildable.
 
 KV cache is `L x T x 2 x D` bytes, one byte per 4-bit activation:
 
@@ -108,9 +110,30 @@ in the iNES header still yields 4 - reconfirmed this run), so
 T_max = 32768 / (L x 2 x D) = 32768 / 384 = 85 positions
 ```
 
-is a hard ceiling, not a preference. `T = 20` was chosen originally so that the
-cache fitted one bank and the attention loop never had to switch mid-flight;
-`T = 85` gives that up and pays for a bank register write per KV row address.
+is a hard ceiling on the legacy path, not a preference. `T = 20` was chosen
+originally so that the cache fitted one bank and the attention loop never had
+to switch mid-flight; `T = 85` gives that up and pays for a bank register
+write per KV row address.
+
+**The attention kernels have a much lower ceiling, and it is not capacity.**
+They reach their caches with assembled absolute constants, which is the whole
+reason the accumulator can stay in `A`. That costs two bounds:
+
+```
+QK:  ldx KTBASE + d*64, y      y = l*T + t
+     y is one byte and the d stride is 64, so   L*T <= 64  ->  T <= 21
+AV:  ldx VBASE  + t*256, y     y = l*64 + d
+     the base is an address inside the $6000 window, so
+     VBASE + (T-1)*256 + 255 <= $7FFF           ->  T <= 32
+```
+
+`T <= 21` binds. Raising it means giving the key cache a stride of `L*T`
+instead of 64, which at `T = 85` is `64 * 255 = 16,320` bytes - two PRG-RAM
+banks - and an assembled absolute address cannot cross a bank. And even if it
+could: at `T = 85` the two caches together need all 32,768 bytes of PRG-RAM,
+so there is no bank left for the writable kernels. Both bounds are `.assert`-ed
+in `rom/nn.s`; a build above them selects the legacy path rather than emitting
+something that looks right.
 
 **KV row alignment, and why banking is safe.** Rows are `D = 64` bytes, laid
 out at row index
