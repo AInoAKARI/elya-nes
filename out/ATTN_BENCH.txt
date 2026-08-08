@@ -25,5 +25,29 @@ AV kernel, isolated   (call frame + 20-cycle driver included)
     endpoint slope   8.8947 cycles/MAC   intercept 49.18
     fitted   slope   9.0346 cycles/MAC   intercept 25.91
 
+NO-self-modifying-code alternative: `adc (mulp),y` with the multiply row in a zero page pointer
+  MACs   cyc/call     kernel          d
+  1         59.08      39.08           
+  2         68.08      48.08      +9.00
+  3         77.08      57.08      +9.00
+  4         86.08      66.08      +9.00
+  5         95.08      75.08      +9.00
+  6        104.08      84.08      +9.00
+  7        113.08      93.08      +9.00
+  8        122.08     102.08      +9.00
+  9        131.08     111.08      +9.00
+  10       140.08     120.08      +9.00
+  11       162.08     142.08     +22.00
+  12       171.08     151.08      +9.00
+  13       180.08     160.08      +9.00
+  14       189.08     169.08      +9.00
+  15       198.08     178.08      +9.00
+  16       207.08     187.08      +9.00
+  17       216.08     196.08      +9.00
+  18       225.08     205.08      +9.00
+  19       234.08     214.08      +9.00
+  20       247.08     227.08     +13.00
+  endpoint slope 9.8947 cycles/MAC (self-modified form: see above)
+
 QK kernel, isolated (fixed 32 MACs)
       357.08 cyc/call incl driver       347.08 kernel     10.846 cyc/MAC

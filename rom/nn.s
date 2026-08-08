@@ -184,7 +184,10 @@ nbH:     .res 1              ; loop can seed the accumulator instead of
                              ; subtracting afterwards.  NOT sumL/sumH, which
                              ; softmax overwrites between here and the AV pass
 smp:     .res 2              ; the tbl_p row for this softmax's kk
-mulp:    .res 2              ; ATTNBENCH only: the no-SMC multiply-row pointer
+.ifdef ATTNBENCH
+mulp:    .res 2              ; the no-SMC multiply-row pointer, bench only, and
+.endif                       ; conditional so the bench cannot move any other
+                             ; zero page variable in the shipping build
 avn:     .res 1              ; number of positions with p != 0
 avnt:    .res 1              ; curpos + 1
 ucur:    .res 1              ; chain unit cursor, filled from the top down

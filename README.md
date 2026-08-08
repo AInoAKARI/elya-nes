@@ -58,12 +58,13 @@ ROM that runs perfectly and says the wrong thing.
 | primitives vs prior run | **19/19 match** |
 | bank crossings per token | **6** (36 cycles, 0.003% of a token) |
 | ternary kernel | **10.688 cycles/MAC** asymptotic vs the 8-cycle primitive |
-| ROM vs host reference | **19/19 tokens EXACT**, at three independent seed tokens: **57/57** |
+| ROM vs host reference | **19/19 tokens EXACT** at every one of 64 seed tokens: **1,216/1,216** |
 | trained model | val **2.0546 nats/token = 1.4133 nats/char** (uniform 4.1589) |
 | nonzero weights | **52,207** of 102,400 (density 0.5098) |
-| cycles per token (trained) | 1,103,615 (pos 0) .. 1,366,939 (pos 18), mean **1,233,099** |
-| cycles per token (random init) | mean **1,221,027** - trained costs +0.99% for +1.8% nnz |
-| wall clock at 1,789,772 Hz | **0.6890 s/token** |
+| cycles per token (trained) | 1,097,352 (pos 0) .. 1,147,754 (pos 18), mean **1,116,979** |
+| attention at full context | **86,142 cycles, 7.3%** of a token (was 302,624, 21.6%) |
+| attention kernels | **8.00 cycles/MAC** measured, self-modified operands in PRG-RAM |
+| wall clock at 1,789,772 Hz | **0.6241 s/token** |
 | independent emulator | ares 147 gives the **identical** 19 tokens (random-init build) |
 
 ## Layout
