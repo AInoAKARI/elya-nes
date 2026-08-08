@@ -179,9 +179,10 @@ besti:   .res 1
 t0:      .res 1
 t1:      .res 1
 avp:     .res 2
-yoff:    .res 1
-avbL:    .res 1              ; MULBIAS * (live t count); NOT sumL/sumH, which
-avbH:    .res 1              ; softmax overwrites between here and the AV pass
+nbL:     .res 1              ; -(MULBIAS * live count), pre-negated so the AV
+nbH:     .res 1              ; loop can seed the accumulator instead of
+                             ; subtracting afterwards.  NOT sumL/sumH, which
+                             ; softmax overwrites between here and the AV pass
 avn:     .res 1              ; number of positions with p != 0
 avnt:    .res 1              ; curpos + 1
 ucur:    .res 1              ; chain unit cursor, filled from the top down
@@ -278,8 +279,8 @@ tbl_exp:    .incbin "out/model/tbl_exp.bin"
 avchain:
 .repeat NCTX, u
     .ident (.sprintf ("avu%02d", u)):
-    ldx VBASE, y                ; the V PAGE byte (+2) is patched per unit
-    adc tbl_mul, x              ; the multiply row (+4) is patched per unit
+    ldx VBASE, y                ; base (+1,+2) and multiply row (+4) are all
+    adc tbl_mul, x              ; patched per unit; y is just d
     .if (u = 9) || (u = NCTX - 1)
     adc totL                    ; fold the block into the 16-bit total
     sta totL
@@ -1402,50 +1403,61 @@ attn_head:
     sta avp
     lda avent_hi,y
     sta avp+1
-    lda #0                      ; bias is MULBIAS * avn, not * (curpos+1)
-    sta avbL
-    sta avbH
+    lda #0                      ; nb = -(MULBIAS * avn); seeding the
+    sta nbL                     ; accumulator with it is 14 cycles a dimension
+    sta nbH                     ; cheaper than subtracting it afterwards
     beq @bdone
 @bias:
-    lda avbL
-    clc
-    adc #MULBIAS
-    sta avbL
-    lda avbH
-    adc #0
-    sta avbH
+    sec
+    lda nbL
+    sbc #MULBIAS
+    sta nbL
+    lda nbH
+    sbc #0
+    sta nbH
 @bdone:
     dey
     bpl @bias
-    ldy curlay
-    lda mul64lo,y
-    clc
-    adc hbase
-    sta yoff                    ; y index into V[t] = curlay*64 + d
-    lda hbase
-    sta t1
+    ldy hbase
 @d:
-    lda #0
+    lda nbL
     sta totL
+    lda nbH
     sta totH
-    ldy yoff
+    sty t1                      ; requant clobbers Y
+    lda #0
     clc                         ; A = 0, C = 0: the chain's contract
     jsr av_call
     AMARK 39
-    sec
-    lda totL
-    sbc avbL
-    sta totL
+    ; --- requant_k4, inlined: the jsr/rts was 12 cycles a dimension --------
     lda totH
-    sbc avbH
-    sta totH
-    jsr requant_k4
+    beq @lo
+    cmp #$FF
+    beq @hi
+    lda totH
+    bmi @satn
+@satp:
+    lda #7
+    bne @put                    ; 7 is never zero, so this is unconditional
+@satn:
+    lda #<(-7)
+    bne @put
+@lo:
+    ldy totL
+    cpy #HI4 + 1
+    bcs @satp
+    lda tbl_q4,y
+    jmp @put
+@hi:
+    ldy totL
+    cpy #LO4
+    bcc @satn
+    lda tbl_q4,y
+@put:
     ldy t1
     sta ATTV,y
-    inc yoff
-    inc t1
-    lda t1
-    cmp hend
+    iny
+    cpy hend
     bne @d
     lda #KVBANK
     sta MMC5_RAMBANK
@@ -1480,10 +1492,13 @@ av_patch:
     ldx ucur
     ldy avuoff,x                ; Y = this unit's byte offset (ldx abs,x does
     sta avchain + 4, y          ; not exist, so the offset goes in Y and the
-    lda t0                      ; stores are abs,y)
+    ldx curlay                  ; stores are abs,y)
+    lda mul64lo,x
+    sta avchain + 1, y          ; base low  = curlay * 64
+    lda t0
     clc
     adc #>VBASE
-    sta avchain + 2, y          ; V page        = VBASE_hi + t
+    sta avchain + 2, y          ; base high = VBASE_hi + t
     inc avn
     dec ucur
     ldy t0

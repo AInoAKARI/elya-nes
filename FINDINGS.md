@@ -1193,3 +1193,39 @@ Caveat worth stating plainly: **this speedup is data dependent.** The
 arithmetic is exact for any model, but a model with a flatter attention
 distribution would keep more units and save less. The 8.00 cycles/MAC of
 Stages A and B are not data dependent; this is.
+
+## Stage D: the AV dimension loop, once the kernel stopped being the cost
+
+With the chain down to ~1.3 units, AV's cost was no longer the multiply-adds -
+it was the 98 cycles of frame around each of the 32 dimensions. Three changes,
+all measured together:
+
+* **Seed the accumulator with the bias instead of subtracting it.** `nb =
+  -(MULBIAS * avn)` is computed once per head and written into `totL/totH`
+  before the chain runs; two's-complement addition does the rest. That
+  deletes a 20-cycle 16-bit subtract per dimension for the price of 6.
+* **Patch the V base's low byte too**, so `y` is just `d` rather than
+  `curlay*64 + d`. That removes the second loop counter and its `inc`.
+  (The base low byte is `curlay*64` <= 128 and `d` <= 63, so the load still
+  never crosses a page.)
+* **Inline `requant_k4`** - the `jsr`/`rts` alone was 12 cycles a dimension.
+
+| | before Stage D | after |
+| --- | ---: | ---: |
+| AV section, in situ (pos 18) | 28,166 (146.7/dim) | **22,089 (115.1/dim)** |
+| "AV other" | 19,206 | **12,645** |
+| attention (PROFILE, pos 18) | 107,267 (8.9%) | **101,229 (8.5%)** |
+| cycles/token, mean | 1,130,955 | **1,124,698** |
+
+57/57 exact at seed tokens 1, 26, 40.
+
+### A negative: the same zero-skip does NOT pay for QK
+
+`mul[(0<<4)|k]` is the constant 13 just as `mul[(p<<4)|0]`... is not - the
+symmetric saving for QK would be query nibbles equal to zero. Counted on the
+trained model over 19 tokens: **66 of 1,216 layer-0 query nibbles are zero,
+5.4%.** The distribution is bimodal at the saturation points (`-7`: 246,
+`+7`: 278) and nearly flat in between. Skipping 5.4% of 32 units would save
+about 14 cycles a call and cost more than that to detect, so QK keeps its
+fixed 32-unit chain. Attention's sparsity lives entirely in the softmax, not
+in the queries.
