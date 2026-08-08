@@ -306,6 +306,11 @@ class Runner:
         self.K = [[[0] * D for _ in range(T)] for _ in range(L)]
         self.Vc = [[[0] * D for _ in range(T)] for _ in range(L)]
         self.trace = []
+        # Opt-in observation only.  Setting this appends (layer, head, pos,
+        # probability vector) for every attention head evaluated; it changes no
+        # arithmetic and defaults to off so the specification path is unaltered.
+        self.record_attn = False
+        self.attn_log = []
 
     def step(self, tok, p):
         m = self.m
@@ -331,6 +336,8 @@ class Runner:
                         s += MUL[(nib(q[base + j]) << 4) | self.K[l][t][base + j]]
                     scores.append(s - MUL_BIAS * DH)
                 pr = softmax_q(scores)
+                if self.record_attn:
+                    self.attn_log.append((l, h, p, list(pr)))
                 dbg["scores"] = list(scores)
                 dbg["p"] = list(pr)
                 for j in range(DH):
