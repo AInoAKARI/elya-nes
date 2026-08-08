@@ -85,6 +85,11 @@ shape is within 7% of that, so the two are directly comparable.)
 
 ### The $6000 window arithmetic
 
+> **Superseded for the attention rewrite.** K and V no longer share one
+> interleaved cache; they want opposite layouts and live in separate PRG-RAM
+> banks. See "The attention kernels and their two caches" below. The total
+> is still one byte per 4-bit activation and still fits comfortably.
+
 KV cache is `L x T x 2 x D` bytes, one byte per 4-bit activation:
 
 ```
@@ -123,8 +128,8 @@ the memory cost, so 64-byte alignment is used deliberately.
 | `$0300` | marker port (instrument) |
 | `$0400-$04FF` | **ACTB** - biased activation page, page-aligned, the `adc ACTB,y` target |
 | `$0500-$05FF` | output/staging page (pre-bias), page-aligned |
-| `$0600-$06FF` | q / k / v / attention scratch |
-| `$0700-$07FF` | attention probabilities, misc |
+| `$0600-$06FF` | residual stream, query nibbles, attention output |
+| `$0700-$07FF` | scores, exp buckets, attention probabilities |
 
 `$0400` is a hard constant, not a BSS symbol, and the BSS memory area is
 capped at `$0200-$02FF` in the linker config so that a result slot growing
@@ -132,14 +137,38 @@ into `$0300` or `$0400` is a **link error**, not a silent collision. (A silent
 collision of exactly this kind previously made banks read back ROM signatures
 and looked like an emulator fault.)
 
+### The attention kernels and their two caches
+
+QK sums over `d` for a fixed `t`; AV sums over `t` for a fixed `d`. Written
+so the accumulator stays in `A`, the summation axis has to be a register
+index and the *other* axis has to be unrolled into the instruction stream -
+which means the two kernels want the cache laid out along opposite axes:
+
+```
+KT[d][l][t] = $6000 + d*64  + (l*20 + t)     RAM bank 4   (QK: y = l*20+t)
+V [t][l][d] = $6000 + t*256 + (l*64 + d)     RAM bank 6   (AV: y = d)
+```
+
+Both strides are chosen so the indexed load can never cross a page (`64 + 59`
+and `128 + 63` both stay under 256), which is worth a whole cycle per
+multiply-add - the same argument that page-aligns the ternary gather chains.
+
+The multiply row `tbl_mul + (operand << 4)` is written into the *operand byte*
+of the `adc`, so the kernels live in PRG-RAM bank 5, mapped over the
+weight-stream window at `$8000` for the duration of attention (attention never
+reads the weight stream) and copied there from the `$A000` bank at reset.
+`RAMEXEC` in FINDINGS is the measurement that says MMC5 PRG-RAM at `$8000` is
+writable, executable, and independent of the `$6000` window.
+
 ## 3. PRG-ROM layout
 
 256 KB PRG = 32 banks of 8 KB, MMC5 PRG mode 3.
 
 | window | reg | contents |
 |---|---|---|
-| `$6000-$7FFF` | `$5113 = 4` | PRG-RAM: KV cache |
-| `$8000-$9FFF` | `$5114` | **weight stream window**, slides 0..N |
+| `$6000-$7FFF` | `$5113 = 4` | PRG-RAM: transposed **key** cache (bank 4) |
+| `$6000-$7FFF` | `$5113 = 6` | PRG-RAM: **value** cache (bank 6) |
+| `$8000-$9FFF` | `$5114` | **weight stream window**, slides 0..N; during attention `$5114 = 5` maps PRG-RAM bank 5 here, holding the self-modified kernels |
 | `$A000-$BFFF` | `$5115` | embedding + positional table (fixed) |
 | `$C000-$DFFF` | `$5116` | spare (fixed) |
 | `$E000-$FFFF` | `$5117` | **fixed code bank**: kernel, page chains, tables, vectors |

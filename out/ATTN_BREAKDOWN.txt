@@ -1,0 +1,24 @@
+
+first token (pos 0)   token total 1091243 cycles
+  score loop (all t)        2654 cycles      6 calls      442.3 cyc/call
+  QK kernel                 2102 cycles      6 calls      350.3 cyc/call
+  softmax                   1824 cycles      6 calls      304.0 cyc/call
+  AV section               19848 cycles      6 calls     3308.0 cyc/call
+  AV kernel                 8984 cycles    192 calls       46.8 cyc/call
+    score-loop other         552 cycles
+    AV other               10864 cycles
+  attention accounted      24326 cycles
+  QK: 10.95 cycles/MAC over 192 MACs
+  AV: 46.79 cycles/MAC over 192 MACs
+
+last token (pos 18)   token total 1155700 cycles
+  score loop (all t)       44522 cycles      6 calls     7420.3 cyc/call
+  QK kernel                39986 cycles    114 calls      350.8 cyc/call
+  softmax                  19462 cycles      6 calls     3243.7 cyc/call
+  AV section               22089 cycles      6 calls     3681.5 cyc/call
+  AV kernel                 9444 cycles    192 calls       49.2 cyc/call
+    score-loop other        4536 cycles
+    AV other               12645 cycles
+  attention accounted      86073 cycles
+  QK: 10.96 cycles/MAC over 3648 MACs
+  AV: 2.59 cycles/MAC over 3648 MACs

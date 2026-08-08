@@ -22,5 +22,8 @@ build nn      rom/nn.s    rom/nn.cfg
 build nnprof  rom/nn.s    rom/nn.cfg -DPROFILE
 build nnbench rom/nn.s    rom/nn.cfg -DBENCH
 build nndbg   rom/nn.s    rom/nn.cfg -DDEBUG -DDBGPOS=0
+build nnattn  rom/nn.s    rom/nn.cfg -DATTNPROF     # attention breakdown
+build nnabench rom/nn.s   rom/nn.cfg -DATTNBENCH    # attention kernel slope
+build ramexec rom/nn.s    rom/nn.cfg -DRAMEXEC      # MMC5 PRG-RAM probe
 
 ls -l out/*.nes

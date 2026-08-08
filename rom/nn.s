@@ -81,24 +81,58 @@ MMC5_PRGE000 = $5117
 .endmacro
 PMARK_COST = 12
 
+; Same shape, gated separately, so the attention breakdown can be measured
+; without perturbing the PROFILE build the headline numbers come from.
+.macro AMARK v
+.ifdef ATTNPROF
+    stx xsave2              ; 3
+    ldx #v                  ; 2
+    stx MARKER              ; 4
+    ldx xsave2              ; 3   = 12 cycles, A/Y/carry untouched
+.endif
+.endmacro
+
 ; ---- fixed pages in system RAM (constants, NOT bss - see nn.cfg) ----------
 ACTB   = $0400              ; biased activation input page (the adc target)
 OUTB   = $0500              ; signed matmul output, up to 128 entries
 XVEC   = $0600              ; residual stream x[0..63], signed
 Q4HI   = $0640              ; (q & 15) << 4
 ATTV   = $0680              ; attention output, signed
-ACC8   = $06C0              ; 8-bit block accumulators for AV
 SCORL  = $0700
 SCORH  = $0720
 EXPE   = $0740
 P4HI   = $0760
-AVL    = $0780
-AVH    = $07C0
 
 EMBED   = $A000
 POSTAB  = $A000 + NVOCAB * NDMODEL
 HEADERS = $C000
 KVBASE  = $6000
+
+; ---- self-modified kernels and the caches they read -----------------------
+; KERNBANK is PRG-RAM mapped at $8000 (the weight-stream window, which
+; attention never reads) and holds the kernels whose multiply-table operands
+; are patched per layer/head.  VBANK is a SECOND PRG-RAM bank holding the
+; value cache in the layout the AV kernel wants:
+;
+;   V[t][l][d] = VBASE + t*256 + l*64 + d
+;
+; The 256-byte t stride is what makes the AV kernel's `ldx VBASE+t*256,y`
+; free of page crossings for every one of the 192 (l,d) offsets, and it makes
+; the base a BUILD-TIME CONSTANT - the kernel never patches it.
+; The key cache gets the MIRROR treatment: QK sums over d for a fixed t, so
+; there d is the unrolled/patched axis and t is the register axis, and the
+; cache has to be TRANSPOSED for the address to be linear in t:
+;
+;   KT[d][l][t] = KTBASE + d*64 + (l*20 + t)
+;
+; 64-byte d stride, index l*20+t <= 59, so `ldx KTBASE+d*64,y` never crosses
+; a page either.  K and V therefore want OPPOSITE layouts, which is why they
+; live in different PRG-RAM banks.
+KERNBANK = 5
+VBANK    = 6
+KVBANK   = 4
+VBASE    = $6000
+KTBASE   = $6000
 
 .zeropage
 wchain:  .res 2
@@ -133,7 +167,8 @@ curtok:  .res 1
 tcnt:    .res 1
 gi:      .res 1
 kvsel:   .res 1
-kvt:     .res 1
+qkp:     .res 2
+ktoff:   .res 1
 blkn:    .res 1
 sumL:    .res 1
 sumH:    .res 1
@@ -143,6 +178,19 @@ bestH:   .res 1
 besti:   .res 1
 t0:      .res 1
 t1:      .res 1
+avp:     .res 2
+nbL:     .res 1              ; -(MULBIAS * live count), pre-negated so the AV
+nbH:     .res 1              ; loop can seed the accumulator instead of
+                             ; subtracting afterwards.  NOT sumL/sumH, which
+                             ; softmax overwrites between here and the AV pass
+smp:     .res 2              ; the tbl_p row for this softmax's kk
+.ifdef ATTNBENCH
+mulp:    .res 2              ; the no-SMC multiply-row pointer, bench only, and
+.endif                       ; conditional so the bench cannot move any other
+                             ; zero page variable in the shipping build
+avn:     .res 1              ; number of positions with p != 0
+avnt:    .res 1              ; curpos + 1
+ucur:    .res 1              ; chain unit cursor, filled from the top down
 
 .segment "BSS"
 res_tokens: .res 32
@@ -204,6 +252,92 @@ tbl_blkcnt: .incbin "out/model/tbl_blkcnt.bin"
     .align $100
 tbl_step:   .incbin "out/model/tbl_step.bin"
 tbl_exp:    .incbin "out/model/tbl_exp.bin"
+
+; The softmax tables live in the $A000 bank, which is mapped throughout
+; softmax; the $C000 table bank has no room left.
+.segment "SMTABLES"
+tbl_sm:     .incbin "out/model/tbl_sm.bin"     ; page aligned by the linker
+tbl_p:      .incbin "out/model/tbl_p.bin"
+
+; ===========================================================================
+; Self-modified kernels.  Assembled for $8000 (PRG-RAM bank 5) but STORED in
+; the $A000 bank; `reset` copies them across.  See RAMEXEC in FINDINGS for the
+; measurement that says MMC5 PRG-RAM at $8000 is writable and executable.
+; ===========================================================================
+.segment "RAMKERN"
+.import __RAMKERN_LOAD__, __RAMKERN_RUN__, __RAMKERN_SIZE__
+
+; --- AV: att[d] = quant(sum_t mul[(p_t<<4)|v_t[d]] - MULBIAS*(curpos+1)) ---
+;
+; The 6502 cannot keep an accumulator in A while ALSO building a multiply
+; index, because `ora` has no X/Y form (see DESIGN.md).  The way out is to
+; stop building the index: p_t is constant across d, so the multiply table
+; ROW is constant across d too, and the row's address can live in the
+; INSTRUCTION rather than in a register.  Then d is the outer loop, t is the
+; inner one, A holds the accumulator for the whole of it, and each element is
+;
+;       ldx VBASE+t*256, y      ; 4   y = l*64 + d, never crosses a page
+;       adc tbl_mul+(p_t<<4), x ; 4   low byte patched by av_patch
+;
+; Eight cycles per multiply-add against the 25 the ora/tax/lda/adc/sta form
+; costs.  The chain is laid out in DESCENDING t so that entering it at unit
+; (NCTX-1-curpos) covers exactly t = curpos..0; addition is commutative so
+; the order does not change the sum.
+;
+; Carry: every table entry is 0..25 and the folds are at most ten units
+; apart, so 10*25 = 250 < 256 - a block can never set carry, exactly the
+; argument that makes the ternary gather chain legal.
+avchain:
+.repeat NCTX, u
+    .ident (.sprintf ("avu%02d", u)):
+    ldx VBASE, y                ; base (+1,+2) and multiply row (+4) are all
+    adc tbl_mul, x              ; patched per unit; y is just d
+    .if (u = 9) || (u = NCTX - 1)
+    adc totL                    ; fold the block into the 16-bit total
+    sta totL
+    bcc *+4
+    inc totH
+    lda #0
+    clc
+    .endif
+.endrepeat
+avu_none:                       ; entry used when every p is zero
+    rts
+
+; --- QK: score_t = sum_d mul[(q_d<<4)|k_t[d]] - MULBIAS*NDHEAD -------------
+;
+; The mirror image of the AV kernel.  Here it is q_d that is constant across
+; the loop variable (t), so the multiply row is patched per d and the unrolled
+; axis is d.  One chain per head, because a head's 32 units address a fixed
+; set of KT rows; `attn_head` points qkp at the right one.
+;
+; Carry: a block of 8 table entries is at most 8*25 = 200, so no `clc` is
+; needed between elements and the fold is every eighth unit.
+.repeat NHEAD, h
+    .ident (.sprintf ("qkchain%d", h)):
+    lda #<(-(MULBIAS * NDHEAD))   ; seed with the bias rather than subtract it
+    sta scL                       ; afterwards: 14 cycles a call instead of 30
+    lda #>(-(MULBIAS * NDHEAD))
+    sta scH
+    lda #0
+    clc
+    .repeat NDHEAD, i
+    ldx KTBASE + (h * NDHEAD + i) * 64, y
+    .ident (.sprintf ("qkop%02d", h * NDHEAD + i)) = * + 1
+    adc tbl_mul, x
+    .if (i & 7) = 7
+    adc scL
+    sta scL
+    bcc *+4
+    inc scH
+    lda #0
+    clc
+    .endif
+    .endrepeat
+    rts
+.endrepeat
+
+RAMKERN_END:
 
 ; ===========================================================================
 ; 32 gather chains, one per page of the $8000 weight window.
@@ -276,31 +410,61 @@ reset:
     sta $0700,x
     inx
     bne @clr
-    ; clear the KV cache
+    ; clear the transposed key cache ($6000..$6FFF, RAM bank 4)
     ldx #0
 @clrkv:
-    sta $6000,x
-    sta $6100,x
-    sta $6200,x
-    sta $6300,x
-    sta $6400,x
-    sta $6500,x
-    sta $6600,x
-    sta $6700,x
-    sta $6800,x
-    sta $6900,x
-    sta $6A00,x
-    sta $6B00,x
-    sta $6C00,x
-    sta $6D00,x
-    sta $6E00,x
-    sta $6F00,x
-    sta $7000,x
-    sta $7100,x
-    sta $7200,x
-    sta $7300,x
+    .repeat 16, pg
+    sta KTBASE + pg * 256, x
+    .endrepeat
     inx
     bne @clrkv
+
+    ; clear the value cache in RAM bank 6 ($6000..$73FF)
+    lda #VBANK
+    sta MMC5_RAMBANK
+    lda #0
+    ldx #0
+@clrv:
+    .repeat 20, pg
+    sta VBASE + pg * 256, x
+    .endrepeat
+    inx
+    bne @clrv
+    lda #KVBANK
+    sta MMC5_RAMBANK
+
+    ; copy the self-modified kernels into PRG-RAM bank 5 at $8000
+    ; the copy is a plain linear 16-bit move, so the SOURCE may sit anywhere;
+    ; only the destination has to be page aligned for the loop's `ldy #0`.
+    .assert <__RAMKERN_RUN__ = 0, lderror, "RAMKERN run is not page aligned"
+    .assert __RAMKERN_RUN__ = $8000, lderror, "RAMKERN must run at $8000"
+    lda #KERNBANK
+    sta MMC5_PRG8000
+    lda #<__RAMKERN_LOAD__
+    sta sptr
+    lda #>__RAMKERN_LOAD__
+    sta sptr+1
+    lda #<__RAMKERN_RUN__
+    sta kptr
+    lda #>__RAMKERN_RUN__
+    sta kptr+1
+    ldx #0
+@kpg:
+    cpx #>(__RAMKERN_SIZE__ + 255)      ; whole pages, rounded up
+    beq @kdone
+    ldy #0
+@kb:
+    lda (sptr),y
+    sta (kptr),y
+    iny
+    bne @kb
+    inc sptr+1
+    inc kptr+1
+    inx
+    bne @kpg
+@kdone:
+    lda #$80
+    sta MMC5_PRG8000
 
     lda #SEEDTOK
     sta curtok
@@ -309,6 +473,12 @@ reset:
 
     ldx #254
     stx MARKER              ; SYNC
+.ifdef ATTNBENCH
+    jmp attn_bench
+.endif
+.ifdef RAMEXEC
+    jmp ramexec_test
+.endif
 .ifdef BENCH
     jmp bench
 .endif
@@ -453,6 +623,218 @@ bench:
     jmp @hang2
 .endif
 
+
+.ifdef RAMEXEC
+; --- can MMC5 PRG-RAM be mapped at $8000 AND executed from? ----------------
+; The whole self-modifying-chain plan depends on the answer, so it is a
+; measurement, not an assumption.  Reports three marker bytes:
+;   111 = the $8000 window read back what we wrote to it (it is RAM)
+;   112 = a subroutine assembled into that RAM actually executed
+;   113 = the $6000 window (RAM bank 4) still holds its own data
+ramexec_stub:
+    .byte $A2, 112          ; ldx #112
+    .byte $8E, $00, $03     ; stx MARKER
+    .byte $60               ; rts
+RAMEXEC_LEN = 6
+
+ramexec_test:
+    lda #$AA
+    sta $6000               ; bank 4 marker byte, must survive
+    lda #5
+    sta MMC5_PRG8000        ; bit 7 clear -> PRG-RAM bank 5 at $8000
+    ldx #0
+@cp:
+    lda ramexec_stub,x
+    sta $8000,x
+    inx
+    cpx #RAMEXEC_LEN
+    bne @cp
+    lda $8000
+    cmp #$A2
+    bne @nr
+    ldx #111
+    stx MARKER
+@nr:
+    jsr $8000               ; should emit 112
+    lda $6000
+    cmp #$AA
+    bne @nk
+    ldx #113
+    stx MARKER
+@nk:
+    ; are RAM banks 4,5,6,7 four INDEPENDENT 8 KB banks at $6000?
+    ; write the bank number into each, then read them all back.
+    ldy #4
+@wr:
+    sty MMC5_RAMBANK
+    sty $6001
+    iny
+    cpy #8
+    bne @wr
+    ldy #4
+@rd:
+    sty MMC5_RAMBANK
+    cpy $6001
+    bne @bad
+    iny
+    cpy #8
+    bne @rd
+    ldx #114                ; 114 = banks 4..7 are independent
+    stx MARKER
+@bad:
+    lda #4
+    sta MMC5_RAMBANK
+    ldx #M_DONE
+    stx MARKER
+@h: jmp @h
+.endif
+
+
+.ifdef ATTNBENCH
+; --- the NO-self-modifying-code alternative, for a head-to-head number -----
+; The brief's other idea: keep the multiply row in a zero-page POINTER
+; instead of in the instruction, which needs no writable code at all.
+;   ldy VBASE+t*256, x    ; 4   x = l*64+d, base low byte is 0, no page cross
+;   adc (mulp), y         ; 5   base low byte is p<<4 <= 112, y <= 15, no cross
+; Nine cycles instead of eight.  Assembled into ROM precisely because it does
+; not need to be patched; benched against the real chain below.
+avptr_chain:
+.repeat NCTX, u
+    .ident (.sprintf ("avpu%02d", u)):
+    ldy VBASE + (NCTX - 1 - u) * 256, x
+    adc (mulp), y
+    .if (u = 9) || (u = NCTX - 1)
+    adc totL
+    sta totL
+    bcc *+4
+    inc totH
+    lda #0
+    clc
+    .endif
+.endrepeat
+avpu_none:
+    rts
+
+avpent_lo:
+    .byte <avpu_none
+.repeat NCTX, n
+    .byte <(.ident (.sprintf ("avpu%02d", NCTX - 1 - n)))
+.endrepeat
+avpent_hi:
+    .byte >avpu_none
+.repeat NCTX, n
+    .byte >(.ident (.sprintf ("avpu%02d", NCTX - 1 - n)))
+.endrepeat
+
+avptr_call:
+    jmp (avp)
+
+; --- isolated slope/intercept for the attention kernels --------------------
+; Calls the REAL chains (not copies) over t-counts 1..NCTX so the per-MAC
+; slope and the per-call intercept separate, the way BENCH does for the
+; ternary gather.  Cache contents are irrelevant to the cycle count: every
+; address involved is proven page-cross free, so the timing is data
+; independent.  The measured window is BENCH_REP calls plus BENCH_REP copies
+; of a fixed 20-cycle driver, which cancels out of the slope.
+BENCH_REP = 64
+
+attn_bench:
+    lda #KERNBANK
+    sta MMC5_PRG8000
+    lda #VBANK
+    sta MMC5_RAMBANK
+    ldy #0                      ; make every position live so the sweep can
+    lda #$10                    ; reach all NCTX units
+@fill:
+    sta P4HI,y
+    iny
+    cpy #NCTX
+    bne @fill
+    lda #NCTX
+    sta avnt
+    jsr av_patch
+    lda #0
+    sta di
+@l:
+    ldy di
+    iny                         ; entry table is indexed by the LIVE count
+    lda avent_lo,y
+    sta avp
+    lda avent_hi,y
+    sta avp+1
+    lda #BENCH_REP
+    sta cnt
+    MARKX M_BEGIN
+@r:
+    lda #0                  ; 2
+    sta totL                ; 3
+    sta totH                ; 3
+    ldy #0                  ; 2
+    clc                     ; 2
+    jsr av_call             ; 6 + chain
+    dec cnt                 ; 5
+    bne @r                  ; 3
+    MARKX M_END
+    inc di
+    lda di
+    cmp #NCTX
+    bcc @l
+
+    ; the no-SMC pointer form, same sweep, same driver
+    lda #<tbl_mul
+    sta mulp
+    lda #>tbl_mul
+    sta mulp+1
+    lda #0
+    sta di
+@l2:
+    ldy di
+    iny
+    lda avpent_lo,y
+    sta avp
+    lda avpent_hi,y
+    sta avp+1
+    lda #BENCH_REP
+    sta cnt
+    MARKX M_BEGIN
+@r2:
+    lda #0                  ; 2
+    sta totL                ; 3
+    sta totH                ; 3
+    ldx #0                  ; 2
+    clc                     ; 2
+    jsr avptr_call          ; 6 + chain
+    dec cnt                 ; 5
+    bne @r2                 ; 3
+    MARKX M_END
+    inc di
+    lda di
+    cmp #NCTX
+    bcc @l2
+
+    ; QK does a fixed NDHEAD MACs, so there is no slope to fit - only the
+    ; per-call cost.  Driver here is 10 cycles (ldy/dec/bne).
+    lda #KVBANK
+    sta MMC5_RAMBANK
+    lda #<qkchain0
+    sta qkp
+    lda #>qkchain0
+    sta qkp+1
+    lda #BENCH_REP
+    sta cnt
+    MARKX M_BEGIN
+@q:
+    ldy #0                  ; 2
+    jsr qk_call             ; 6 + chain + rts
+    dec cnt                 ; 5
+    bne @q                  ; 3
+    MARKX M_END
+
+    ldx #M_DONE
+    stx MARKER
+@bh: jmp @bh
+.endif
+
 ; ===========================================================================
 ; forward(): curtok, curpos -> curtok
 ; ===========================================================================
@@ -555,8 +937,8 @@ savmagic:
 mul64lo:
     .byte 0, 64, 128, 192
 
-lay40:
-    .byte 0, NCTX * 2, NCTX * 4
+lay20:
+    .byte 0, NCTX, NCTX * 2
 
 ; ===========================================================================
 ; one transformer layer
@@ -909,28 +1291,64 @@ bias_copy:
     ldx xsave
     rts
 
+; post_q both records the query nibbles and patches them straight into the QK
+; chains' multiply-row operands.  tbl_mul is page aligned, so the operand's
+; low byte IS (q<<4).  The chains live in the $8000 window, so the weight
+; stream has to step aside for the duration; wbank puts it back.
 post_q:
     stx xsave
-    ldy #0
-@l:
-    lda OUTB,y
+    lda #KERNBANK
+    sta MMC5_PRG8000
+.repeat NDMODEL, d
+    lda OUTB + d
     and #$0F
     asl a
     asl a
     asl a
     asl a
-    sta Q4HI,y
-    iny
-    cpy #NDMODEL
-    bne @l
+    sta Q4HI + d                ; kept for the DEBUG dump only
+    sta .ident (.sprintf ("qkop%02d", d))
+.endrepeat
+    lda wbank
+    ora #$80
+    sta MMC5_PRG8000
     ldx xsave
     rts
 
 post_kv:
     stx xsave
+    lda kvsel
+    beq @k
+    jmp @v                      ; the unrolled scatter is far out of bne range
+@k:
+    ; K[curlay][curpos][d] -> KT[d][curlay][curpos], a stride-64 scatter.
+    ; Unrolled because the destination page is then a build-time constant and
+    ; `sta abs,x` costs 5 whatever X is: 11 cycles an element against the 19
+    ; the pointer form cost.
+    ldx curlay
+    lda lay20,x
+    clc
+    adc curpos
+    tax
+.repeat NDMODEL, d
+    lda OUTB + d
+    and #$0F
+    sta KTBASE + d * 64, x
+.endrepeat
+    ldx xsave
+    rts
+
+@v:                             ; V[curpos][curlay][d], RAM bank 6
+    lda #VBANK
+    sta MMC5_RAMBANK
+    ldy curlay
+    lda mul64lo,y
+    sta kptr                    ; curlay * 64
     lda curpos
-    sta kvt
-    jsr kv_ptr
+    clc
+    adc #>VBASE
+    sta kptr+1                  ; VBASE + curpos * 256
+@go:
     ldy #0
 @l:
     lda OUTB,y
@@ -939,28 +1357,9 @@ post_kv:
     iny
     cpy #NDMODEL
     bne @l
+    lda #KVBANK
+    sta MMC5_RAMBANK
     ldx xsave
-    rts
-
-; kptr = KVBASE + (lay40[curlay] + kvt*2 + kvsel) * 64      (clobbers A/Y)
-kv_ptr:
-    ldy curlay
-    lda lay40,y
-    clc
-    adc kvt
-    adc kvt
-    adc kvsel
-    pha
-    and #$03
-    tay
-    lda mul64lo,y
-    sta kptr
-    pla
-    lsr a
-    lsr a
-    clc
-    adc #>KVBASE
-    sta kptr+1
     rts
 
 post_residual:
@@ -1004,6 +1403,13 @@ post_relu:
 ; ===========================================================================
 attention:
     stx xsave
+    lda curpos
+    clc
+    adc #1
+    sta avnt                    ; number of cached positions, curpos + 1
+    ; map the self-modified kernels over the weight-stream window
+    lda #KERNBANK
+    sta MMC5_PRG8000
     lda #0
     sta hbase
 @head:
@@ -1016,202 +1422,200 @@ attention:
     sta hbase
     cmp #NDMODEL
     bcc @head
+    lda wbank                   ; put the weight stream back at $8000
+    ora #$80
+    sta MMC5_PRG8000
     ldx xsave
     rts
 
 attn_head:
     ; ---- scores for t = 0..curpos ------------------------------------
+    AMARK 34
+    lda hbase                   ; hbase / NDHEAD -> this head's QK chain
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda qkent_lo,y
+    sta qkp
+    lda qkent_hi,y
+    sta qkp+1
+    ldy curlay
+    lda lay20,y
+    sta ktoff                   ; y index into KT[d] = curlay*20 + t
     lda #0
     sta tcnt
 @score:
-    lda #0
-    sta kvsel
-    lda tcnt
-    sta kvt
-    jsr kv_ptr
-    jsr dot_qk
+    ldy ktoff
+    jsr qk_call
+    AMARK 33
     ldy tcnt
     lda scL
     sta SCORL,y
     lda scH
     sta SCORH,y
+    inc ktoff
     inc tcnt
     lda tcnt
     cmp curpos
     beq @score
     bcc @score
+    AMARK 35
 
+    AMARK 36
     jsr softmax
+    AMARK 37
 
     ; ---- AV ----------------------------------------------------------
-    ldy hbase
-    lda #0
-@zero:
-    sta AVL,y
-    sta AVH,y
-    iny
-    cpy hend
-    bne @zero
-
-    lda #0
-    sta tcnt
-@group:
-    ldy hbase
-    lda #0
-@z2:
-    sta ACC8,y
-    iny
-    cpy hend
-    bne @z2
-    lda #0
-    sta gi
-@avt:
-    lda #1
-    sta kvsel
-    lda tcnt
-    sta kvt
-    jsr kv_ptr
-    ldy tcnt
-    lda P4HI,y
-    sta ph
-    jsr acc_av
-    inc tcnt
-    inc gi
-    lda tcnt
-    cmp curpos
-    beq @cont
-    bcs @flush
-@cont:
-    lda gi
-    cmp #8
-    bcc @avt
-@flush:
-    jsr av_fold
-    lda tcnt
-    cmp curpos
-    beq @group
-    bcc @group
-    jsr av_quant
-    rts
-
-; ---- score = sum_j mul[(q<<4)|k] - MULBIAS*NDHEAD, blocked by 8 -----------
-dot_qk:
-    lda #0
-    sta scL
-    sta scH
-    ldy hbase
-    lda #NDHEAD / 8
-    sta blkn
-@blk:
-    lda #0
-    sta bacc
-    clc
-    .repeat 8
-    lda (kptr),y
-    ora Q4HI,y
-    tax
-    lda bacc
-    adc tbl_mul,x
-    sta bacc
-    iny
-    .endrepeat
-    lda bacc
-    clc
-    adc scL
-    sta scL
-    bcc @1
-    inc scH
-@1:
-    dec blkn
-    beq @out
-    jmp @blk                ; the unrolled block is >127 bytes, so bne cannot reach
-@out:
+    ; d is the OUTER loop and t the inner one, which is what lets the
+    ; accumulator stay in A; see the avchain comment in the RAMKERN segment.
+    AMARK 40
+    jsr av_patch                ; pack the p != 0 positions into the chain
+    lda #VBANK
+    sta MMC5_RAMBANK
+    ldy avn
+    lda avent_lo,y              ; enter so the chain runs exactly avn units
+    sta avp
+    lda avent_hi,y
+    sta avp+1
+    lda #0                      ; nb = -(MULBIAS * avn); seeding the
+    sta nbL                     ; accumulator with it is 14 cycles a dimension
+    sta nbH                     ; cheaper than subtracting it afterwards
+    beq @bdone
+@bias:
     sec
-    lda scL
-    sbc #<(MULBIAS * NDHEAD)
-    sta scL
-    lda scH
-    sbc #>(MULBIAS * NDHEAD)
-    sta scH
-    rts
-
-; ---- add one position's products into the 8-bit block accumulators -------
-acc_av:
-    ldy hbase
-    lda #NDHEAD / 8
-    sta blkn
-    clc
-@blk:
-    .repeat 8
-    lda (kptr),y
-    ora ph
-    tax
-    lda ACC8,y
-    adc tbl_mul,x
-    sta ACC8,y
-    iny
-    .endrepeat
-    dec blkn
-    beq @out
-    jmp @blk                ; the unrolled block is >127 bytes
-@out:
-    rts
-
-av_fold:
-    ; uses X, not Y: the 6502 has no `inc abs,y`.  X is free here because
-    ; `attention` already saved the weight-stream offset in xsave.
-    ldx hbase
-@l:
-    lda ACC8,x
-    clc
-    adc AVL,x
-    sta AVL,x
-    bcc @1
-    inc AVH,x
-@1:
-    inx
-    cpx hend
-    bne @l
-    rts
-
-; ---- att[j] = quant(AV[j] - MULBIAS*(curpos+1), 4) ------------------------
-av_quant:
-    lda curpos
-    clc
-    adc #1
-    sta t0
-    lda #0
-    sta sumL
-    sta sumH
-    ldy t0
-@mul:
-    lda sumL
-    clc
-    adc #MULBIAS
-    sta sumL
-    lda sumH
-    adc #0
-    sta sumH
+    lda nbL
+    sbc #MULBIAS
+    sta nbL
+    lda nbH
+    sbc #0
+    sta nbH
+@bdone:
     dey
-    bne @mul
-
+    bpl @bias
     ldy hbase
-@l:
-    sty t1
-    sec
-    lda AVL,y
-    sbc sumL
+@d:
+    lda nbL
     sta totL
-    lda AVH,y
-    sbc sumH
+    lda nbH
     sta totH
-    jsr requant_k4
+    sty t1                      ; requant clobbers Y
+    lda #0
+    clc                         ; A = 0, C = 0: the chain's contract
+    jsr av_call
+    AMARK 39
+    ; --- requant_k4, inlined: the jsr/rts was 12 cycles a dimension --------
+    lda totH
+    beq @lo
+    cmp #$FF
+    beq @hi
+    lda totH
+    bmi @satn
+@satp:
+    lda #7
+    bne @put                    ; 7 is never zero, so this is unconditional
+@satn:
+    lda #<(-7)
+    bne @put
+@lo:
+    ldy totL
+    cpy #HI4 + 1
+    bcs @satp
+    lda tbl_q4,y
+    jmp @put
+@hi:
+    ldy totL
+    cpy #LO4
+    bcc @satn
+    lda tbl_q4,y
+@put:
     ldy t1
     sta ATTV,y
     iny
     cpy hend
+    bne @d
+    lda #KVBANK
+    sta MMC5_RAMBANK
+    AMARK 41
+    rts
+
+av_call:
+    AMARK 38
+    jmp (avp)
+
+; --- build the AV chain for this head --------------------------------------
+; mul[(0<<4)|v] is 13 for EVERY v, so a position whose softmax nibble is zero
+; contributes nothing but MULBIAS.  Those positions are dropped from the chain
+; entirely and paid for by shrinking the bias to MULBIAS * (live count) - the
+; arithmetic is unchanged, the work is not.  Measured on the trained model,
+; 86.9% of AV positions are pure bias like this.
+;
+; Live positions are packed into the TOP of the chain, so entering at unit
+; (NCTX - avn) runs exactly them.  Each unit needs two bytes: the V page
+; ($60+t, because the t stride is a whole page) and the multiply row (P4HI[t],
+; because tbl_mul is page aligned).
+av_patch:
+    lda #0
+    sta avn
+    lda #NCTX - 1
+    sta ucur
+    ldy #0
+@l:
+    lda P4HI,y
+    beq @skip
+    sty t0
+    ldx ucur
+    ldy avuoff,x                ; Y = this unit's byte offset (ldx abs,x does
+    sta avchain + 4, y          ; not exist, so the offset goes in Y and the
+    ldx curlay                  ; stores are abs,y)
+    lda mul64lo,x
+    sta avchain + 1, y          ; base low  = curlay * 64
+    lda t0
+    clc
+    adc #>VBASE
+    sta avchain + 2, y          ; base high = VBASE_hi + t
+    inc avn
+    dec ucur
+    ldy t0
+@skip:
+    iny
+    cpy avnt
     bne @l
     rts
+
+avuoff:
+.repeat NCTX, u
+    .byte <(.ident (.sprintf ("avu%02d", u)) - avchain)
+.endrepeat
+
+; entry point for a chain carrying n live units, n = 0..NCTX
+avent_lo:
+    .byte <avu_none
+.repeat NCTX, n
+    .byte <(.ident (.sprintf ("avu%02d", NCTX - 1 - n)))
+.endrepeat
+avent_hi:
+    .byte >avu_none
+.repeat NCTX, n
+    .byte >(.ident (.sprintf ("avu%02d", NCTX - 1 - n)))
+.endrepeat
+    .assert <avp <> $FF, error, "avp would hit the JMP-indirect page bug"
+
+qk_call:
+    AMARK 32
+    jmp (qkp)
+
+qkent_lo:
+.repeat NHEAD, h
+    .byte <(.ident (.sprintf ("qkchain%d", h)))
+.endrepeat
+qkent_hi:
+.repeat NHEAD, h
+    .byte >(.ident (.sprintf ("qkchain%d", h)))
+.endrepeat
+    .assert <qkp <> $FF, error, "qkp would hit the JMP-indirect page bug"
 
 ; ===========================================================================
 ; softmax over SCORL/SCORH[0..curpos] -> P4HI
@@ -1258,38 +1662,27 @@ softmax:
     sta sumL
     sta sumH
 @e:
+    ; diff = SCOR[t] - best, always <= 0.  The high byte decides which of
+    ; three cases applies and the low byte indexes the table, so the whole
+    ; shift-and-clamp is one 4-cycle load.
     ldy tcnt
     sec
     lda SCORL,y
     sbc bestL
-    sta totL
+    tax
     lda SCORH,y
     sbc bestH
-    sta totH
-    ldx #3
-@sh:
-    lda totH
-    cmp #$80                ; C = sign bit, so ror is an arithmetic shift
-    ror totH
-    ror totL
-    dex
-    bne @sh
-    lda totH
-    beq @use
+    beq @zero               ; diff == 0
     cmp #$FF
-    bne @clampd
-    lda totL
-    cmp #<(-14)
-    bcs @use
-@clampd:
-    lda #<(-14)
-    sta totL
-@use:
-    lda totL
-    clc
-    adc #14
-    tax
-    lda tbl_exp,x
+    bne @far                ; diff <= -257: past the bottom of the table
+    lda tbl_sm,x
+    bcs @have               ; sbc left C set: diff > -32768, always true here
+@zero:
+    lda #EXP_TOP
+    bne @have               ; EXP_TOP is 64, never zero
+@far:
+    lda #EXP_BOT
+@have:
     ldy tcnt
     sta EXPE,y
     clc
@@ -1319,27 +1712,24 @@ softmax:
     inc kk
     jmp @kkl
 @kkdone:
+    lda kk                  ; rows from kk = 7 up are all zero, so clamping
+    cmp #SM_KROWS           ; the row index is exact, not an approximation
+    bcc @kok
+    lda #SM_KROWS - 1
+@kok:
+    tax
+    lda smrowlo,x
+    sta smp
+    lda smrowhi,x
+    sta smp+1
 
     lda #0
     sta tcnt
 @p:
     ldy tcnt
     lda EXPE,y
-    ldx kk
-    beq @noshift
-@sh2:
-    lsr a
-    dex
-    bne @sh2
-@noshift:
-    cmp #8
-    bcc @ok
-    lda #7
-@ok:
-    asl a
-    asl a
-    asl a
-    asl a
+    tay
+    lda (smp),y             ; = min(e >> kk, 7) << 4
     ldy tcnt
     sta P4HI,y
     inc tcnt
@@ -1348,6 +1738,16 @@ softmax:
     beq @p
     bcc @p
     rts
+
+smrowlo:
+.repeat SM_KROWS, k
+    .byte <(tbl_p + k * SM_PROW)
+.endrepeat
+smrowhi:
+.repeat SM_KROWS, k
+    .byte >(tbl_p + k * SM_PROW)
+.endrepeat
+    .assert <smp <> $FF, error, "smp must not straddle a zero page wrap"
 
 ; ===========================================================================
 ; output head: NVOCAB raw rows, argmax with ties going to the lowest index

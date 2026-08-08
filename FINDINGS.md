@@ -382,6 +382,10 @@ contradiction of it.
   structural wall as the discarded 4-bit-weight LUT: building the multiply
   table index needs `ORA`, there is no `ORA` to X or Y, so the accumulator
   cannot stay in A. At full context it is 21.8% of a token.
+  *(Superseded - see "Attention kernel optimisation" at the end of this file.
+  The wall is real but it is avoidable: only ONE of attention's two kernels
+  has two varying operands, and neither of them does once the loops are
+  transposed. Attention is now 7.3% of a token at full context.)*
 - **Two of my own bugs produced plausible output**: the Duff's-device entry bug
   gave the right token at positions 0 and 1 while layer 0 was already wrong at
   position 0, and the bank-boundary bug hung rather than mis-answered. Neither
@@ -940,3 +944,474 @@ define and the `NSTREAM` define are all provably neutral.
 
 The committed `out/nn.nes` is the **trained** cartridge
 (`runs/final_av2_bpe64_tau0.75.npz`, seed token 1), not the random-init one.
+
+---
+
+# Attention kernel optimisation (session: attention)
+
+## Baseline, reproduced from the committed cartridge
+
+`train/build_trained.sh runs/final_av2_bpe64_tau0.75.npz 1` rebuilds
+`out/nn.nes` **byte-identically** to the committed cartridge (git reports the
+working tree clean after the build), so everything below is measured against
+the shipped ROM, not a lookalike.
+
+| measurement | value |
+| --- | --- |
+| tokens | 19/19 exact vs host |
+| mean cycles/token | **1,233,099** |
+| pos 0 | 1,103,615 (transcript: `out/ATTN_BASELINE.txt`) |
+| pos 18 (full context) | **1,366,939** |
+| profiled pos-18 attention | **302,624 cycles, 21.6%** |
+| profiled pos-0 attention | 39,812 cycles, 3.5% |
+| ternary gather in situ | 16.30 cycles/MAC, 8.31 cycles/weight (nnz 52,207) |
+
+The brief's 1,233,099 / 302,444 / 21.8% / 16.34 / 8.19 figures come from
+`out/nn_profile.txt`, which was taken at nnz 51,299 — a different training run.
+The cycles/token figure agrees to the digit; the attention figure differs by
+0.06%. All deltas below are against **302,624 / 1,366,939 / 1,233,099**, the
+numbers this session measured on the ROM it is actually editing.
+
+## Where the 302 k cycles actually go
+
+`tools/run_attn_profile.py` on an `-DATTNPROF` build (five nested 12-cycle
+marker pairs, each enclosing region corrected for the markers inside it):
+
+| region | pos 0 | pos 18 (full context) |
+| --- | ---: | ---: |
+| QK kernel (`dot_qk`) | 5,452 | **103,568** |
+| score-loop other (`kv_ptr`, score store, loop) | 726 | 12,162 |
+| softmax | 2,316 | **33,046** |
+| AV kernel (`acc_av`) | 5,160 | **98,040** |
+| AV other (`av_fold`, `av_quant`, zeroing, `kv_ptr`) | 26,074 | 56,204 |
+| accounted | 39,728 | 303,020 |
+
+Measured per-MAC, **in situ**:
+
+| kernel | cycles/call | MACs/call | cycles/MAC |
+| --- | ---: | ---: | ---: |
+| `dot_qk` | 908.5 | 32 | **28.39** |
+| `acc_av` | 860.0 | 32 | **26.88** |
+
+The 23 and 25 in the brief are the straight-line inner loops; the extra 3-5 is
+the per-block carry fold and the call frame. Two things this measurement
+changes about the plan:
+
+* **`softmax` is 11% of attention** and was not on the list at all. 5,508
+  cycles for 19 positions is 290 cycles per position, for what is a table
+  lookup and a shift.
+* **"AV other" is 18.5%** - `av_fold` and `av_quant` and the per-t `kv_ptr`
+  together cost more than the score loop's entire non-kernel overhead. A
+  rewrite that keeps `acc_av` but leaves the bookkeeping alone can win at most
+  a third of the AV cost.
+
+## The self-modifying-code plan needs three things from MMC5; all three measured
+
+`ca65 -DRAMEXEC` builds a ROM whose only job is to answer this, because the
+whole optimisation depends on it and "MMC5 can probably do that" is not a
+measurement. Markers emitted: `111 112 113 114 255` - all four checks pass.
+
+| check | marker | result |
+| --- | --- | --- |
+| `$5114 = 5` (bit 7 clear) maps PRG-**RAM** at `$8000`, writable | 111 | yes |
+| a subroutine assembled into that RAM **executes** | 112 | yes |
+| the `$6000` window (bank 4) keeps its own contents meanwhile | 113 | yes |
+| RAM banks 4,5,6,7 at `$6000` are four **independent** 8 KB banks | 114 | yes |
+
+So the plan is legal: self-modified kernels live in RAM bank 5 mapped at
+`$8000` (the weight-stream window, which attention never reads), the KV cache
+stays in the `$6000` window, and there is a spare bank for a second cache
+layout.
+
+## Stage A: AV at 8.00 cycles/MAC - stop building the index, move it into the instruction
+
+The wall the brief describes is real but it is not the whole story. Building
+`(q<<4)|k` needs `ora`, `ora` has no X/Y form, so the accumulator is evicted
+from A. **But only one of attention's two kernels actually has two varying
+operands.** In AV,
+
+    att[d] = sum_t mul[(p_t << 4) | v_t[d]]
+
+`p_t` does not depend on `d`. So if `d` is the OUTER loop and `t` the inner
+one, the multiply table ROW is fixed for the whole of an inner iteration, and
+a fixed row is an *address*, not a register operand. There is no index to
+build, so nothing evicts the accumulator:
+
+    ldx VBASE + t*256, y        ; 4   y = curlay*64 + d
+    adc tbl_mul + (p_t<<4), x   ; 4   low byte self-modified
+
+That transposition is the whole trick, and it needs three things arranged
+around it:
+
+* **`d` outer, `t` inner** - the opposite of the old loop, which had to be
+  `t` outer because it accumulated 32 separate sums in `ACC8`.
+* **`t` in the instruction, not a register**, so the multiply row can be
+  patched per t. That means the t loop is unrolled: 20 units, laid out in
+  DESCENDING t, entered at unit `19 - curpos` so it covers exactly
+  t = curpos..0. Addition is commutative, so the reversed order cannot
+  change a sum.
+* **the kernel in RAM** - PRG-RAM bank 5 mapped at `$8000`, the
+  weight-stream window, which attention never reads. `reset` copies the
+  kernel there from the `$A000` bank.
+
+The value cache moved to its own PRG-RAM bank in the layout the kernel wants,
+`V[t][l][d] = $6000 + t*256 + l*64 + d`. The 256-byte t stride is not
+padding for its own sake: it makes the base a build-time constant AND makes
+`ldx base,y` page-cross free for all 192 (l,d) offsets, which is worth a
+whole cycle per MAC.
+
+### Isolated (ATTNBENCH build, real chain, t-count swept 1..20)
+
+```
+  MACs   cyc/call     kernel    cyc/MAC
+  1         58.08      38.08     38.078
+  10       130.08     110.08     11.008   d=+8.00
+  11       151.08     131.08     11.916   d=+21.00   <- carry fold
+  19       215.08     195.08     10.267   d=+8.00
+  20       227.08     207.08     10.354   d=+12.00   <- carry fold
+```
+
+**Every step is exactly +8.00 cycles.** The two visible jumps are the two
+16-bit carry folds; the folds are ten units apart because 10 x 25 = 250 < 256
+is the largest block that provably cannot set carry, the same argument that
+licenses the ternary gather chain. Intercept ~30 cycles = `jsr` + `jmp
+(avp)` + `rts` + the closing fold.
+
+### Measured, before and after
+
+| | before | after |
+| --- | ---: | ---: |
+| AV kernel body, isolated | 26.88 cyc/MAC | **8.00 cyc/MAC** (slope) |
+| AV kernel, in situ (pos 18) | 98,040 cyc | **38,720 cyc** |
+| whole AV section, in situ | 154,244 cyc | **56,344 cyc** |
+| whole AV section per MAC | 42.28 cyc/MAC | **15.44 cyc/MAC** |
+| attention (PROFILE build, pos 18) | 302,624 (21.6%) | **206,932 (15.9%)** |
+| cycles/token, mean | 1,233,099 | **1,184,165** |
+| cycles/token, pos 18 | 1,366,939 | **1,270,349** |
+
+**57/57 tokens exact** against the host reference at seed tokens 1, 26 and 40
+(19 tokens each, well past the 16-token bar), with `max|dW| = 0` on the
+packed weights each time.
+
+One bug worth recording because it passed positions 0 and 1: the AV bias
+`MULBIAS*(curpos+1)` was hoisted out of the per-head loop into `attention`,
+where it was written to `sumL/sumH` - which `softmax` then overwrites on its
+way past. Positions 0 and 1 still came out right. Position 2 did not. That
+is the third time in this project that a change has produced the correct
+token at position 0 and 1 while being wrong; a 3-token check would have
+shipped it.
+
+## Stage B: QK at 8-cycle units, on a key cache turned inside out
+
+QK is the mirror image of AV:
+
+    score_t = sum_d mul[(q_d << 4) | k_t[d]]
+
+Here it is `q_d` that is constant along the summation axis, so the same trick
+applies with the roles of the two axes swapped: **d is the unrolled/patched
+axis and t is the register axis.** Which means the key cache has to be
+TRANSPOSED, because the address must now be linear in t:
+
+    KT[d][l][t] = $6000 + d*64 + (l*20 + t)        (RAM bank 4)
+    V [t][l][d] = $6000 + t*256 + (l*64 + d)       (RAM bank 6)
+
+K and V want opposite layouts. That is the real reason attention was worse
+per operation than the gather beside it: **one cache cannot serve both
+kernels**, and the old code made both of them pay for the compromise. Two
+PRG-RAM banks, one layout each, and both kernels get a page-cross-free
+`abs,y` load.
+
+The patching is free of extra passes. `post_q` already walked the 64 query
+nibbles; it now writes each one straight into its chain unit's operand as
+well (`tbl_mul` is page aligned, so the operand's low byte *is* `q<<4`).
+Unrolled, that costs 22 cycles an element against the 26 the old loop cost -
+the patch is cheaper than the loop it replaced. Same for the key scatter:
+unrolled `sta KTBASE+d*64,x` is 11 cycles an element against the 19 the old
+`sta (kptr),y` pointer walk cost, and it writes the transposed layout for
+free.
+
+### Measured
+
+| | before | after |
+| --- | ---: | ---: |
+| QK kernel, isolated (32 MACs) | 908.5 cyc = 28.39 cyc/MAC | **357.1 cyc = 11.16 cyc/MAC** |
+| QK kernel, in situ (pos 18) | 103,568 cyc | **41,438 cyc** |
+| score-loop other (`kv_ptr` etc.) | 12,054 cyc | **4,536 cyc** |
+| attention (PROFILE, pos 18) | 302,624 (21.6%) | **136,954 (11.1%)** |
+| cycles/token, mean | 1,233,099 | **1,145,564** |
+
+The 11.16 is the whole call: 32 units at exactly 8.00 = 256, four 16-bit
+carry folds, the prologue/epilogue, and 17 cycles of `jsr` + `jmp (qkp)` +
+`rts`. The 8.00 per unit is the same figure the AV sweep measured
+element by element.
+
+**57/57 tokens exact** at seed tokens 1, 26, 40. The random-init `./build.sh`
+cartridge also verifies 19/19 exact, so the change is not specific to the
+trained weights' sparsity. All seven build variants (default, PROFILE, BENCH,
+DEBUG, ATTNPROF, ATTNBENCH, RAMEXEC) assemble and link.
+
+## Stage C: 86.9% of the AV work was multiplying by zero
+
+`mul[(0<<4)|v] = floor(0*v/4) + 13 = 13` for **every** v. So a position whose
+softmax nibble is zero contributes exactly `MULBIAS` to every one of the 32
+sums and nothing else. Counting them on the trained model (host reference,
+19 tokens, all 3 layers x 2 heads):
+
+| context length | positions | with p != 0 | pure bias |
+| ---: | ---: | ---: | ---: |
+| 2 | 6 calls | 1.33 | 33% |
+| 8 | 6 calls | 1.00 | 88% |
+| 15 | 6 calls | 1.00 | 93% |
+| 19 | 6 calls | 1.33 | **93%** |
+| all | 1,140 slots | 149 | **86.9%** |
+
+The quantised softmax is far more peaked than the float one it approximates:
+`p = min(e >> kk, 7)` with `kk` chosen so `sum(e) >> kk <= 8` drives almost
+everything to zero. That is the same effect the AV_SHIFT finding earlier in
+this file describes from the other end - attention here really does look at
+one or two positions.
+
+So the AV chain is now **built per head**, not just patched: `av_patch` walks
+`P4HI`, drops every zero, and packs the survivors into the top of the 20-unit
+chain. Both operands of a live unit are written (the V page, because the t
+stride is a whole page, and the multiply row). Entry is at unit
+`NCTX - avn`, and the bias becomes `MULBIAS * avn` instead of
+`MULBIAS * (curpos+1)` - which is exactly the contribution the dropped units
+would have made, so the arithmetic is unchanged. `avn = 0` is possible
+(if `kk >= 7` even the argmax quantises to zero) and lands on a bare `rts`.
+
+This is the same shape as the ternary gather kernel next door, which has
+always skipped zero weights. Attention was the only kernel in the ROM still
+paying for its zeros.
+
+| | before Stage C | after |
+| --- | ---: | ---: |
+| AV kernel, in situ (pos 18) | 38,720 cyc (201.7/call) | **8,960 cyc (46.7/call)** |
+| AV section, in situ | 56,524 | **28,166** |
+| attention (PROFILE, pos 18) | 136,954 (11.1%) | **107,267 (8.9%)** |
+| cycles/token, mean | 1,145,564 | **1,130,955** |
+
+**57/57 tokens exact** at seed tokens 1, 26, 40.
+
+Caveat worth stating plainly: **this speedup is data dependent.** The
+arithmetic is exact for any model, but a model with a flatter attention
+distribution would keep more units and save less. The 8.00 cycles/MAC of
+Stages A and B are not data dependent; this is.
+
+## Stage D: the AV dimension loop, once the kernel stopped being the cost
+
+With the chain down to ~1.3 units, AV's cost was no longer the multiply-adds -
+it was the 98 cycles of frame around each of the 32 dimensions. Three changes,
+all measured together:
+
+* **Seed the accumulator with the bias instead of subtracting it.** `nb =
+  -(MULBIAS * avn)` is computed once per head and written into `totL/totH`
+  before the chain runs; two's-complement addition does the rest. That
+  deletes a 20-cycle 16-bit subtract per dimension for the price of 6.
+* **Patch the V base's low byte too**, so `y` is just `d` rather than
+  `curlay*64 + d`. That removes the second loop counter and its `inc`.
+  (The base low byte is `curlay*64` <= 128 and `d` <= 63, so the load still
+  never crosses a page.)
+* **Inline `requant_k4`** - the `jsr`/`rts` alone was 12 cycles a dimension.
+
+| | before Stage D | after |
+| --- | ---: | ---: |
+| AV section, in situ (pos 18) | 28,166 (146.7/dim) | **22,089 (115.1/dim)** |
+| "AV other" | 19,206 | **12,645** |
+| attention (PROFILE, pos 18) | 107,267 (8.9%) | **101,229 (8.5%)** |
+| cycles/token, mean | 1,130,955 | **1,124,698** |
+
+57/57 exact at seed tokens 1, 26, 40.
+
+### A negative: the same zero-skip does NOT pay for QK
+
+`mul[(0<<4)|k]` is the constant 13 just as `mul[(p<<4)|0]`... is not - the
+symmetric saving for QK would be query nibbles equal to zero. Counted on the
+trained model over 19 tokens: **66 of 1,216 layer-0 query nibbles are zero,
+5.4%.** The distribution is bimodal at the saturation points (`-7`: 246,
+`+7`: 278) and nearly flat in between. Skipping 5.4% of 32 units would save
+about 14 cycles a call and cost more than that to detect, so QK keeps its
+fixed 32-unit chain. Attention's sparsity lives entirely in the softmax, not
+in the queries.
+
+## Stage E: softmax was 33% of what was left, and it was two shift loops
+
+Nothing here is clever - softmax simply had two runtime shift loops that are
+table lookups:
+
+* **`(s - max) >> SM_SHIFT` with a clamp** was a 3-iteration
+  `lda/cmp/ror/ror/dex/bne` (60 cycles) plus a 15-cycle range test. The
+  difference is always <= 0, so its HIGH byte selects one of three cases and
+  its LOW byte indexes a 256-byte table: high `$FF` -> `tbl_sm[low]`, high
+  `$00` -> the difference is exactly zero -> `EXPTAB[14]`, anything else ->
+  past the bottom of the table -> `EXPTAB[0]`. 113 cycles a position becomes
+  32.
+* **`min(e >> kk, 7) << 4`** was a `kk`-long `lsr` loop *per position*, but
+  `kk` is fixed for the whole softmax. One row of a 9 x 65 table is selected
+  once per call and the per-position cost is `lda (smp),y`. Rows from
+  `kk = 7` up are entirely zero because `e <= max(EXPTAB) = 64`, which is why
+  clamping the row index at 8 is exact rather than a fudge - and `sum(e)`
+  cannot exceed `T * 64 = 1280`, so `kk <= 8` anyway.
+
+Both tables are generated by `host/ref.py` from `SM_SHIFT` and `EXPTAB`, and
+their geometry constants go into the same generated `shifts.inc` the shifts
+already travel in, so the ROM still cannot disagree with the specification
+about them. They live in the `$A000` bank; the `$C000` table bank had ~470
+bytes left and needed 841.
+
+| | before Stage E | after |
+| --- | ---: | ---: |
+| softmax, in situ (pos 18) | 33,052 (5,508.7/call) | **19,462 (3,243.7/call)** |
+| attention (PROFILE, pos 18) | 101,229 (8.5%) | **87,594 (7.4%)** |
+| cycles/token, mean | 1,124,698 | **1,117,741** |
+
+57/57 exact at seed tokens 1, 26, 40, and the random-init `./build.sh`
+cartridge verifies 19/19 exact too (the packer changed, so that one matters).
+
+## Settling the self-modifying-code question with a number
+
+The note this work inherited said a RAM-resident kernel had been considered
+and judged "roughly equal", as an estimate. It is not equal, and the size of
+the gap depends on which kernel you ask.
+
+The brief's own alternative - keep the multiply row in a zero-page POINTER
+instead of in the instruction - is assembled into ROM in the ATTNBENCH build
+(`avptr_chain`) and swept with the identical driver:
+
+```
+    self-modified          zero-page pointer
+    ldx VBASE+t*256, y  4  ldy VBASE+t*256, x  4
+    adc tbl_mul+p<<4, x 4  adc (mulp), y       5
+                       ---                   ---
+                         8                     9
+```
+
+Measured, every step of both sweeps:
+
+| form | measured slope | needs writable code |
+| --- | ---: | --- |
+| self-modified operand | **8.00 cycles/MAC** | yes |
+| zero-page pointer | **9.00 cycles/MAC** | no |
+
+So for AV, self-modifying code is worth **exactly one cycle per multiply-add,
+12.5%** - real, but a pointer would have got most of the win without any
+writable code at all.
+
+**For QK it is not a trade-off, it is the only way.** QK's multiply row
+changes with the *unrolled* axis d, so a single pointer cannot serve the 32
+units; it would have to be reloaded inside the loop (~12 cycles) and the
+kernel would be worse than the one it replaced. `(zp,x)` does not help either
+- it dereferences a pointer *table*, and what is needed is an offset into a
+row. Self-modifying code is load-bearing for QK and merely 12.5% for AV.
+
+The ATTNBENCH-only chain does not change the shipping cartridge: rebuilding
+the default target after adding it produces a byte-identical `nn.nes`.
+
+## Attention optimisation: the whole result
+
+All figures measured on the trained cartridge
+(`runs/final_av2_bpe64_tau0.75.npz`, seed token 1) with the same MAME
+instrument, `cycles = round(delta_as * 1789772 / 1e18)`.
+
+### Headline
+
+| | before | after | change |
+| --- | ---: | ---: | ---: |
+| **attention, full context (pos 18)** | **302,624** | **86,142** | **-71.5%** |
+| attention share of a token | **21.6%** | **7.3%** | |
+| cycles/token, mean over 19 | 1,233,099 | **1,116,979** | -9.42% |
+| cycles/token, pos 18 | 1,366,939 | **1,147,754** | -16.03% |
+| cycles/token, pos 0 | 1,103,615 | **1,085,675** | -1.63% |
+| wall clock at 1,789,772 Hz | 0.6890 s | **0.6241 s** | |
+
+### Per kernel
+
+| kernel | isolated, before | isolated, after | in situ, before | in situ, after |
+| --- | ---: | ---: | ---: | ---: |
+| QK (`dot_qk` -> `qkchain`) | 908.5 cyc/call = **28.39** cyc/MAC | 347.1 cyc/call = **10.85** cyc/MAC | 103,568 = 28.39 cyc/MAC | 39,986 = **10.96** cyc/MAC |
+| AV (`acc_av` -> `avchain`) | 860.0 cyc/call = **26.88** cyc/MAC | slope **8.00** cyc/MAC | 98,040 = 26.88 cyc/MAC | 9,444 = **2.59** cyc/MAC |
+
+The AV in-situ figure is below the kernel's own slope because 86.9% of its
+multiply-adds are no longer executed at all (Stage C). The QK figure is the
+honest one for a kernel that always does all 32: **8.00 cycles per unit**
+plus four carry folds, a prologue and a `jsr`/`jmp (ptr)`/`rts` frame.
+
+Against the ternary gather kernel beside it, which was the comparison the
+brief set: gather is **16.30 cycles/MAC in situ**; QK is now **10.96** and AV
+**2.59**. Attention is no longer the worst code in the ROM per operation - it
+is now the best.
+
+### Full attention breakdown, pos 18
+
+| region | before | after |
+| --- | ---: | ---: |
+| QK kernel | 103,568 | 39,986 |
+| score-loop other | 12,054 | 4,536 |
+| softmax | 33,046 | 19,462 |
+| AV kernel | 98,040 | 9,444 |
+| AV other | 56,204 | 12,645 |
+| **accounted** | **303,020** | **86,073** |
+
+### Everything that was tried, including what lost
+
+| # | approach | measured | kept |
+| --- | --- | --- | --- |
+| 1 | AV: transpose the loops so `d` is outer, the multiply row is constant, and it goes in the *instruction* | 26.88 -> **8.00** cyc/MAC | yes |
+| 2 | QK: same, mirrored - unroll `d`, transpose the key cache so the address is linear in `t` | 28.39 -> **10.85** cyc/MAC | yes |
+| 3 | AV: drop positions whose softmax nibble is 0 (they contribute only `MULBIAS`) | 86.9% of units removed; kernel 201.7 -> 46.7 cyc/call | yes |
+| 4 | QK: the same trick on zero *query* nibbles | only **5.4%** of query nibbles are zero; the detection would cost more than the skip | **no** |
+| 5 | the brief's pointer idea: multiply row in a zero-page pointer, `adc (mulp),y`, no writable code | **9.00** cyc/MAC vs 8.00 | **no** (but see below) |
+| 6 | softmax: `(s-max) >> SM_SHIFT` shift loop -> 256-byte table | 113 -> 32 cycles per position | yes |
+| 7 | softmax: per-position `>> kk` loop -> a table row selected once per call | ~82 -> ~36 cycles per position | yes |
+| 8 | seed both accumulators with the negated bias instead of subtracting afterwards | QK 30 -> 14 cyc/call, AV 20 -> 6 cyc/dim | yes |
+| 9 | inline `requant_k4` into the AV dimension loop | 12 cyc/dim | yes |
+| 10 | unrolled key scatter / query patch instead of pointer walks | 19 -> 11 and 26 -> 22 cycles per element | yes |
+
+Row 5 deserves its own note because it is the answer to the question the
+brief asked. Self-modifying code is worth **exactly one cycle per
+multiply-add (12.5%)** for AV, where a pointer would also have worked - the
+earlier "roughly equal" estimate was wrong, but not by much. For QK it is
+**not a trade-off at all**: the multiply row changes with the unrolled axis,
+so no single pointer can serve the 32 units, and the pointer form is simply
+not expressible. Half of this result exists only because the code is
+writable.
+
+### Verification
+
+* **1,216 / 1,216 tokens exact** - 19 tokens at every one of 64 seed tokens
+  (`train/survey_exact.sh`, transcript in `out/ATTN_SURVEY.txt`). The bar was
+  16 tokens at one seed.
+* `max|dW| = 0` on the packed weights at every seed checked.
+* The random-init `./build.sh` cartridge (different sparsity, different
+  weights) also verifies **19/19 exact**, so nothing here is tuned to the
+  trained model's numbers.
+* All eight build variants assemble and link; the `DEBUG` build still dumps a
+  live trace, and the battery-backed result block still reads back
+  `"ELYA"` + 19 tokens identical to the host.
+* The `ATTNBENCH`-only comparison chain is proved not to change the shipping
+  cartridge: rebuilding the default target produces a **byte-identical**
+  `nn.nes`.
+
+### What I could not do, or did not
+
+* **No second emulator.** `ares` is not installed here, so the independent
+  cross-check that the original run did could not be repeated on the new ROM.
+  The `.sav` result block is verified through MAME only.
+* **No `K_SHIFT` ladder.** It never fell in the path of this work and is
+  still unrun; it remains a separate open question.
+* **8.00 cycles/MAC looks like the floor** for this formulation on this CPU:
+  the multiply needs one memory operand fetched into an index register (4)
+  and one table read added to the accumulator (4), and both are already in
+  their cheapest addressing modes with page crossings designed out. Going
+  below it needs fewer multiply-adds, not faster ones - which is exactly what
+  Stage C did for AV and what nothing available does for QK.
+* **The score bias could be dropped entirely.** `MULBIAS * NDHEAD` is the same
+  constant for every `t` and softmax only ever looks at *differences*, so
+  removing it would be exact and would save ~20 cycles a call. It is left in
+  because `SCORL/SCORH` would then no longer match the host reference's
+  recorded `scores`, and that comparison is the DEBUG build's whole purpose.
+  Recorded as available, deliberately declined.
+* **softmax's max-finding loop is untouched** (~900 of its 3,244 cycles).
+* One process note: a per-position figure quoted into README from memory was
+  wrong by 12k cycles and was caught by re-reading the transcript. Every
+  number in this file is copied from a transcript in `out/`.
