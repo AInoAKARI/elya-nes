@@ -89,6 +89,8 @@ train/   prep_corpus.py   the 64-symbol charset, the BPE, the story-disjoint spl
          sidebyside.py    ROM vs host as decoded text
          sample.py        generate with ref.py and detokenise
          table.py         the results table, normalised per character
+         perpos.py        held-out loss POSITION BY POSITION
+         attnspan.py      how far back the attention actually reaches
 tools/   nes_bench.py      the instrument (write tap, no polling, GC-safe)
          run_calib.py      datasheet calibration report
          run_prim.py       primitive report
@@ -106,9 +108,15 @@ FINDINGS.md the journal, appended after every discrete result
 | (none) | `nn.nes` | the clean build; this is what the timing numbers come from |
 | `-DPROFILE` | `nnprof.nes` | X-preserving 12-cycle stage markers |
 | `-DBENCH` | `nnbench.nes` | drives the real `gather` over synthetic list lengths |
-| `-DDEBUG -DDBGPOS=n` | `nndbg.nes` | dumps intermediate state at position n |
+| `-DDEBUG -DDBGPOS=n` | `nndbg.nes` | dumps intermediate state at position n (`NCTX <= 20` only) |
 | `-DSEEDTOK=n` | | the seed token the ROM free-runs from (default 1) |
+| `-DNCTX=n` | | context length; **must match `NES_T`** for `host/ref.py`. 85 is the ceiling (`32768 / (L*2*D)`) |
 | `-DNSTREAM=9` + `rom/nn9.cfg` | | 9 weight-stream banks for a model denser than 0.559 |
+
+`NES_T` is passed to `build.sh` / `train/build_trained.sh` and reaches the
+packer, the trainer and the assembler from that one place. The trainer stamps
+`T` into the npz and `ref.Model.from_npz` refuses to load a mismatch, for the
+same reason it refuses a requantise-shift mismatch.
 
 The requantise shifts (`KSHIFT`, `W2SHIFT`, `AVSHIFT`, `SMSHIFT`) are
 **generated** by `host/ref.py` into `out/model/shifts.inc` and included by
