@@ -2157,3 +2157,277 @@ result is not in question, but the wall-clock figures in
 `out/t85_final_s2.log` are two processes sharing one GPU and are **not** a
 speed measurement. The final npz was written by a single surviving process
 after the kill.
+
+---
+
+# Merging the two branches (session: merge)
+
+Two independent sessions rewrote the same three files. `attn` replaced the
+attention kernels; `ctx` made the context length a build parameter and
+retrained at `T = 85`. Both were verified in isolation, neither was pushed,
+and both touched `rom/nn.s`, `rom/nn.cfg`, `build.sh`, `host/ref.py` and all
+three markdown files.
+
+Everything in this section is measured on the merged tree with the same MAME
+0.277 instrument, `cycles = round(delta_as * 1789772 / 1e18)`.
+
+## Why the two branches do not both fit
+
+The attention rewrite's whole mechanism is that only one operand varies along
+each summation axis, so the *other* operand's multiply-table row can live in
+the instruction rather than in a register. That requires the cache address to
+be an **assembled absolute constant**. Two bounds follow, and they are much
+tighter than the KV cache's capacity bound:
+
+```
+QK   ldx KTBASE + d*64, y        y = curlay*T + t
+     The d stride is 64 and y is one byte, so the whole (layer, t) index has
+     to fit inside a 64-byte row:
+         L*T <= 64   ->   T <= 64/3 = 21
+
+AV   ldx VBASE + t*256, y        y = curlay*64 + d
+     The base is an assembled address inside the $6000 window:
+         VBASE + (T-1)*256 + 255 <= $7FFF   ->   T <= 32
+```
+
+`T <= 21` binds. `T = 85` misses it by a factor of four, and there is no
+cheap way round:
+
+* Give the key cache a stride of `L*T = 255` instead of 64 and it becomes
+  `64 * 255 = 16,320` bytes - two PRG-RAM banks. An assembled absolute
+  address cannot cross a bank, so the 32 units of a QK chain would have to
+  bank-switch inside the chain. That is a `sta $5113` between multiply-adds:
+  4+ cycles onto an 8-cycle unit, which loses more than the rewrite won.
+* The value cache is worse: `T = 85` needs `85 * 256 = 21,760` bytes, and
+  `VBASE + 32*256 = $8000` already leaves the window at `t = 32`.
+* Pack both caches with no padding at all and they need
+  `L * T * 2 * D = 3 * 85 * 2 * 64 = 32,640` bytes. Measured PRG-RAM is
+  **32,768** bytes in four banks. So at `T = 85` the caches alone leave
+  **128 bytes**, and the self-modified kernels need a whole bank. There is no
+  arrangement of four banks that holds a 85-position K, a 85-position V and
+  writable code.
+
+That is the incompatibility, and it is arithmetic, not preference.
+
+## What was done about it
+
+Not "land `attn`, drop `ctx`". Both attention implementations are assembled,
+selected at build time by
+
+```
+ATTN_TMAX = 64 / NLAYER        ; = 21
+FASTATTN  = NCTX <= ATTN_TMAX
+```
+
+* `FASTATTN` - transposed key cache in PRG-RAM bank 4, value cache in bank 6,
+  self-modified chains in bank 5. This is the shipping cartridge.
+* legacy - one interleaved cache, `[layer][k|v][t]`, addressed through
+  `kv_ptr` across all four banks, with `dot_qk` / `acc_av` / `av_fold` /
+  `av_quant`. Selected automatically above the ceiling, which is the only
+  reason `T = 85` is still buildable.
+
+Everything outside attention is shared, including the table-driven softmax.
+So the long-context build **inherits** the softmax speedup it was never
+measured with - see "What the merge made false" below.
+
+**Proof the shipping cartridge did not move:** adding ~350 lines of legacy
+path produced a **byte-identical** `out/nn.nes`. The T = 20 build assembles
+none of it.
+
+### The two resolutions that are not a textual pick of either side
+
+**The context ceiling.** `ctx` asserted `KVBYTES <= 32768`. That is the right
+assert for its layout and the wrong one for the merged ROM, where the binding
+constraint is addressing. Both bounds are now `.assert`-ed against the path
+actually selected, so an over-long build fails to assemble rather than reading
+the wrong bytes.
+
+**`embed_pos`.** `ctx` split the embedding and the positional table into two
+banks unconditionally, which costs a 64-byte copy and two bank writes per
+token. Measured, not assumed: forcing the split at `T = 20` gives **1,117,523**
+cycles/token against **1,116,979**, i.e. **+544 cycles, +0.049%** (still 19/19
+exact). Small, but it is paid on every token of the shipping cartridge for
+nothing, because the two tables only need splitting when they do not fit one
+8 KB window:
+
+```
+POSINEMB = (NVOCAB + NCTX) * NDMODEL <= $2000
+T = 20:   (64 + 20) * 64 = 5,376   fits    -> one bank, no bank write at all
+T = 85:   (64 + 85) * 64 = 9,536   does not -> a bank each, as ctx had it
+```
+
+The bank *numbers* do not move either way, so one linker config serves both
+and the image size does not depend on `T`.
+
+## Both exactness gates, re-run on the merged tree
+
+| gate | result |
+| --- | ---: |
+| attention: 19 tokens x 64 seed tokens, `train/survey_exact.sh` | **1,216 / 1,216 EXACT** |
+| context: 84 tokens x 3 seed tokens at `T = 85` | **252 / 252 EXACT** |
+| `T = 20` regression, trained cartridge, seed 1 | **19 / 19 EXACT** |
+| `max\|dW\|` over 102,400 ternary weights, every build above | **0** |
+| random-init `./build.sh` cartridge | **19 / 19 EXACT** |
+| nine-stream-bank variant (`rom/nn9.cfg`) | **19 / 19 EXACT** |
+
+Transcripts: `out/ATTN_SURVEY.txt`, `out/MERGED_T85_VERIFICATION.txt`,
+`out/MERGED_T20_VERIFICATION.txt`.
+
+### Cycles: the merged T = 20 cartridge is identical, position by position
+
+`runs/final_av2_bpe64_tau0.75.npz`, seed token 1, all 19 positions compared
+against the pre-merge attention baseline:
+
+| | pre-merge | merged |
+| --- | ---: | ---: |
+| pos 0 | 1,085,675 | 1,085,675 |
+| pos 18 | 1,147,754 | 1,147,754 |
+| **mean over 19** | **1,116,979** | **1,116,979** |
+
+Not "within noise" - the same integer at every one of the 19 positions. (The
+ROM images are not byte-identical: the merged linker config declares twelve
+banks rather than ten, which moves `TBLBANK` and `CODEBANK` and therefore the
+bank constants inside the code. The cycle counts are.) The stage profile
+(`out/ATTN_PROFILE.txt`) and the attention breakdown
+(`out/ATTN_BREAKDOWN.txt`) reproduce **byte-identically**: attention 86,142
+cycles (7.3%) at pos 18, QK 39,986, softmax 19,462, AV kernel 9,444.
+
+### Cycles at T = 85, legacy attention path
+
+| seed token | tokens | mean cycles/token |
+| ---: | ---: | ---: |
+| 1 | 84/84 EXACT | 1,697,916 |
+| 26 | 84/84 EXACT | 1,697,802 |
+| 40 | 84/84 EXACT | 1,697,831 |
+
+pos 0 = 1,103,387, pos 83 = 2,295,963 (1.283 s at 1,789,772 Hz).
+
+### The rest of the checks
+
+* **Block 16 still 0 overflows.** `host/blocksize.py` on the shipped weights:
+  86,507 blocks, max **199** against the provable bound of 224, **0** biased
+  sums over 255. At `T = 85`: 381,444 blocks, max **202**, **0** over 255.
+  Both reproduce the committed transcripts exactly. Block 32 remains refuted
+  (5,458 of 56,715 over 255 at `T = 20`).
+* **All build variants link.** At `T <= 21`: `calib`, `prim`, `mmc1`, `mmc3`,
+  `nn`, `nnprof`, `nnbench`, `nndbg`, `nnattn`, `nnabench`, `ramexec`. At
+  `T = 85`: the four mapper ROMs plus `nn`, `nnprof`, `nnbench` - the other
+  four measure the attention kernels, which do not exist there, and `nn.s`
+  refuses to assemble them rather than emit something that looks right.
+* **The DEBUG build's live trace still matches the host**, stage by stage, at
+  position 2: `x0`, `L0.x`, `L1.x`, `L2.x`, `att`, `Q4HI`, `scores` and the
+  softmax probabilities all identical.
+* **The battery-backed result block still reads back.** `T = 20` at `$7FE8`
+  and `T = 85` at `$7FA7`: `"ELYA"`, the count, and every token id identical
+  to the host. This needed a fix - see below.
+* **RAMEXEC still reports 111, 112, 113, 114**: MMC5 PRG-RAM at `$8000` reads
+  back what is written, executes, leaves `$6000` alone, and banks 4-7 are four
+  independent 8 KB banks.
+* **The ATTNBENCH head-to-head is unchanged**, byte-identical to
+  `out/ATTN_BENCH.txt`: self-modified operand 8.00 cycles/MAC, zero-page
+  pointer 9.00.
+
+## One real bug the merge exposed
+
+On the legacy path the result block was written without naming the PRG-RAM
+bank. With the attention kernels the block lives in the key bank, which is
+already selected when generation ends; on the legacy path the selected bank is
+whichever KV row `kv_ptr` touched last, so the block would have been scattered
+into the cache of an arbitrary bank. Neither branch could have caught it:
+`attn` never runs the legacy path, and `ctx` had the bank write in a place the
+merge moved. Fixed, and both paths now verified by dumping the block itself
+out of MAME.
+
+The fix cost five bytes in the fixed code bank, which shifted every later
+branch relative to its page boundary. A taken branch across a page costs +1,
+and the T = 85 mean moved **1,698,272 -> 1,697,916**, i.e. -356 cycles/token,
+-0.02%. Both ROMs verify 84/84 exact and the arithmetic is identical; this is
+purely where the code landed. Recorded because a 356-cycle difference with no
+arithmetic change is exactly the kind of thing that gets explained away.
+
+## What the merge made false
+
+Both journals are left intact as records of what was measured on each branch.
+These are the statements a reader would otherwise carry away wrong.
+
+**From the context journal**, because the long-context build now inherits the
+table-driven softmax:
+
+| statement | as measured on ctx | on the merged tree |
+| --- | ---: | ---: |
+| `T = 85` mean cycles/token | 1,729,505 | **1,697,916** |
+| `T = 85` attention at pos 83 | 1,296,088 (54.1%) | **1,234,468 (52.9%)** |
+| `T = 85` total at pos 83 | 2,360,222 | **2,295,963** |
+| `T = 85` seconds/token, pos 83 | 1.319 | **1.283** |
+| `T = 85` at pos 0 | 1,104,175 | **1,103,387** |
+| `T = 85 / T = 20` cost | +40.3% | **+52.0%** (T = 20 got faster) |
+
+The whole difference is softmax, and it accounts for itself. At `T = 20`
+pos 18 the tables took softmax from 33,046 to 19,462 cycles over
+`3 layers x 2 heads x 19 positions = 114` position-evaluations, i.e. **119.2
+cycles saved per position evaluated**. At `T = 85` pos 83 there are
+`3 x 2 x 84 = 504` of them, predicting 60,053; the measured attention
+difference at pos 83 is `1,296,088 - 1,234,468 =` **61,620**, 2.5% above the
+prediction. The saving scales with `T`, which is why the long-context build
+gains more from it than the short one did.
+
+* The **`84/19 = 4.42` predicted against `4.17` measured** attention-scaling
+  comparison paired two legacy-path measurements. The `T = 85` side has moved
+  and the `T = 20` side is no longer on that path at all, so the pair is no
+  longer comparable as printed. The underlying point - attention is linear in
+  position per token and therefore quadratic over a sequence - is untouched.
+* **`T_max = 32768 / (L*2*D) = 85` is "a hard ceiling"** - true of the layout
+  it describes, which is now the legacy path. The shipping path's ceiling is
+  21 and it is an addressing bound.
+* The `T = 20` column of the context comparison (1,233,099 cycles/token,
+  attention 22.0%, 0.764 s) was measured before the attention rewrite existed.
+  It is now 1,116,979 / 7.3% / 0.641 s.
+
+**From the attention journal:**
+
+* "**All eight build variants assemble and link**" is now eleven targets at
+  `T <= 21` and seven at `T = 85`, for the reason above.
+* DESIGN's "**superseded for the attention rewrite**" note on the `$6000`
+  window arithmetic was right about the shipping path and wrong about the
+  repository: that layout is still assembled and is what a long-context build
+  selects. Reworded.
+* The README's "**0.689 seconds per token**" was already stale on that branch
+  after its own result; it is 0.624.
+
+**Neither branch's fault, found while re-running the gates:** FINDINGS section
+6 records the random-init block table as `16 -> 84,455 blocks, max 191` and
+`32 -> 56,981, max 344, 5,477 over 255`. Running `main`'s own
+`host/blocksize.py` against `main`'s own `host/ref.py` today gives
+`84,455 / 186` and `56,981 / 345 / 5,560`. The block counts match exactly and
+the conclusions are unaffected (0 overflows at 16, ~9.7% at 32), but three of
+the six numbers do not reproduce and the merge did not cause it. Recorded, not
+silently corrected, because the discrepancy predates both branches and its
+origin is not established.
+
+## What this cost
+
+The merged image is **106,512 bytes** where `attn`'s was 90,128: twelve 8 KB
+PRG banks instead of ten. Two of the twelve are empty at `T = 20` - the
+positional-table bank, which the embedding bank still absorbs at that context
+length, and the spare bank that keeps the image a whole number of 16 KB iNES
+units. The alternative is a second linker config, which would make every bank
+number in `rom/nn.s` depend on which config was used. One config and 16 KB of
+zeroes was judged the better trade; it is a cost, not a saving, and it is
+recorded as one.
+
+## What was not done
+
+* **No second emulator.** `ares` is still not installed here, so the
+  independent cross-check remains MAME-only on both paths. The `.sav` result
+  block is verified through MAME's memory dump, not through a real `.sav`
+  file.
+* **No 64-seed survey at `T = 85`.** The context gate is 3 seeds x 84 tokens,
+  which is what the context branch ran; the 64-seed survey was run at `T = 20`
+  only.
+* **No retrain.** Every model figure here is the branches' own; the merge
+  changed no training code path that would move a loss number, and
+  `train/test_equiv.py` was not re-run against a retrained arm.
+* **The legacy attention path was not re-optimised.** It is the pre-rewrite
+  code, kept working, not improved. If a long context ever became interesting
+  again the honest next step is a K layout with an `L*T` stride and a
+  bank-switching QK chain, and a measurement of what that costs per unit.
