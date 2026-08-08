@@ -1145,3 +1145,51 @@ element by element.
 cartridge also verifies 19/19 exact, so the change is not specific to the
 trained weights' sparsity. All seven build variants (default, PROFILE, BENCH,
 DEBUG, ATTNPROF, ATTNBENCH, RAMEXEC) assemble and link.
+
+## Stage C: 86.9% of the AV work was multiplying by zero
+
+`mul[(0<<4)|v] = floor(0*v/4) + 13 = 13` for **every** v. So a position whose
+softmax nibble is zero contributes exactly `MULBIAS` to every one of the 32
+sums and nothing else. Counting them on the trained model (host reference,
+19 tokens, all 3 layers x 2 heads):
+
+| context length | positions | with p != 0 | pure bias |
+| ---: | ---: | ---: | ---: |
+| 2 | 6 calls | 1.33 | 33% |
+| 8 | 6 calls | 1.00 | 88% |
+| 15 | 6 calls | 1.00 | 93% |
+| 19 | 6 calls | 1.33 | **93%** |
+| all | 1,140 slots | 149 | **86.9%** |
+
+The quantised softmax is far more peaked than the float one it approximates:
+`p = min(e >> kk, 7)` with `kk` chosen so `sum(e) >> kk <= 8` drives almost
+everything to zero. That is the same effect the AV_SHIFT finding earlier in
+this file describes from the other end - attention here really does look at
+one or two positions.
+
+So the AV chain is now **built per head**, not just patched: `av_patch` walks
+`P4HI`, drops every zero, and packs the survivors into the top of the 20-unit
+chain. Both operands of a live unit are written (the V page, because the t
+stride is a whole page, and the multiply row). Entry is at unit
+`NCTX - avn`, and the bias becomes `MULBIAS * avn` instead of
+`MULBIAS * (curpos+1)` - which is exactly the contribution the dropped units
+would have made, so the arithmetic is unchanged. `avn = 0` is possible
+(if `kk >= 7` even the argmax quantises to zero) and lands on a bare `rts`.
+
+This is the same shape as the ternary gather kernel next door, which has
+always skipped zero weights. Attention was the only kernel in the ROM still
+paying for its zeros.
+
+| | before Stage C | after |
+| --- | ---: | ---: |
+| AV kernel, in situ (pos 18) | 38,720 cyc (201.7/call) | **8,960 cyc (46.7/call)** |
+| AV section, in situ | 56,524 | **28,166** |
+| attention (PROFILE, pos 18) | 136,954 (11.1%) | **107,267 (8.9%)** |
+| cycles/token, mean | 1,145,564 | **1,130,955** |
+
+**57/57 tokens exact** at seed tokens 1, 26, 40.
+
+Caveat worth stating plainly: **this speedup is data dependent.** The
+arithmetic is exact for any model, but a model with a flatter attention
+distribution would keep more units and save less. The 8.00 cycles/MAC of
+Stages A and B are not data dependent; this is.

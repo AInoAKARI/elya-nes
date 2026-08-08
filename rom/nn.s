@@ -180,8 +180,11 @@ t0:      .res 1
 t1:      .res 1
 avp:     .res 2
 yoff:    .res 1
-avbL:    .res 1              ; MULBIAS * (curpos+1); NOT sumL/sumH, which
+avbL:    .res 1              ; MULBIAS * (live t count); NOT sumL/sumH, which
 avbH:    .res 1              ; softmax overwrites between here and the AV pass
+avn:     .res 1              ; number of positions with p != 0
+avnt:    .res 1              ; curpos + 1
+ucur:    .res 1              ; chain unit cursor, filled from the top down
 
 .segment "BSS"
 res_tokens: .res 32
@@ -275,9 +278,8 @@ tbl_exp:    .incbin "out/model/tbl_exp.bin"
 avchain:
 .repeat NCTX, u
     .ident (.sprintf ("avu%02d", u)):
-    ldx VBASE + (NCTX - 1 - u) * 256, y
-    .ident (.sprintf ("avop%02d", NCTX - 1 - u)) = * + 1
-    adc tbl_mul, x
+    ldx VBASE, y                ; the V PAGE byte (+2) is patched per unit
+    adc tbl_mul, x              ; the multiply row (+4) is patched per unit
     .if (u = 9) || (u = NCTX - 1)
     adc totL                    ; fold the block into the 16-bit total
     sta totL
@@ -287,6 +289,7 @@ avchain:
     clc
     .endif
 .endrepeat
+avu_none:                       ; entry used when every p is zero
     rts
 
 ; --- QK: score_t = sum_d mul[(q_d<<4)|k_t[d]] - MULBIAS*NDHEAD -------------
@@ -694,11 +697,21 @@ attn_bench:
     sta MMC5_PRG8000
     lda #VBANK
     sta MMC5_RAMBANK
+    ldy #0                      ; make every position live so the sweep can
+    lda #$10                    ; reach all NCTX units
+@fill:
+    sta P4HI,y
+    iny
+    cpy #NCTX
+    bne @fill
+    lda #NCTX
+    sta avnt
     jsr av_patch
     lda #0
     sta di
 @l:
     ldy di
+    iny                         ; entry table is indexed by the LIVE count
     lda avent_lo,y
     sta avp
     lda avent_hi,y
@@ -1312,25 +1325,10 @@ post_relu:
 ; ===========================================================================
 attention:
     stx xsave
-    ; MULBIAS * (curpos + 1), the AV bias.  Computed once per layer here
-    ; instead of once per head inside the old av_quant.
     lda curpos
     clc
     adc #1
-    tay
-    lda #0
-    sta avbL
-    sta avbH
-@bias:
-    lda avbL
-    clc
-    adc #MULBIAS
-    sta avbL
-    lda avbH
-    adc #0
-    sta avbH
-    dey
-    bne @bias
+    sta avnt                    ; number of cached positions, curpos + 1
     ; map the self-modified kernels over the weight-stream window
     lda #KERNBANK
     sta MMC5_PRG8000
@@ -1396,14 +1394,29 @@ attn_head:
     ; d is the OUTER loop and t the inner one, which is what lets the
     ; accumulator stay in A; see the avchain comment in the RAMKERN segment.
     AMARK 40
-    jsr av_patch                ; P4HI -> the chain's multiply-row operands
+    jsr av_patch                ; pack the p != 0 positions into the chain
     lda #VBANK
     sta MMC5_RAMBANK
-    ldy curpos                  ; enter the chain so it covers t = curpos..0
-    lda avent_lo,y
+    ldy avn
+    lda avent_lo,y              ; enter so the chain runs exactly avn units
     sta avp
     lda avent_hi,y
     sta avp+1
+    lda #0                      ; bias is MULBIAS * avn, not * (curpos+1)
+    sta avbL
+    sta avbH
+    beq @bdone
+@bias:
+    lda avbL
+    clc
+    adc #MULBIAS
+    sta avbL
+    lda avbH
+    adc #0
+    sta avbH
+@bdone:
+    dey
+    bpl @bias
     ldy curlay
     lda mul64lo,y
     clc
@@ -1443,23 +1456,58 @@ av_call:
     AMARK 38
     jmp (avp)
 
-; --- copy the 20 softmax nibbles into the chain's multiply-row operands ----
-; tbl_mul is page aligned, so the low byte of tbl_mul + (p<<4) IS P4HI[t].
+; --- build the AV chain for this head --------------------------------------
+; mul[(0<<4)|v] is 13 for EVERY v, so a position whose softmax nibble is zero
+; contributes nothing but MULBIAS.  Those positions are dropped from the chain
+; entirely and paid for by shrinking the bias to MULBIAS * (live count) - the
+; arithmetic is unchanged, the work is not.  Measured on the trained model,
+; 86.9% of AV positions are pure bias like this.
+;
+; Live positions are packed into the TOP of the chain, so entering at unit
+; (NCTX - avn) runs exactly them.  Each unit needs two bytes: the V page
+; ($60+t, because the t stride is a whole page) and the multiply row (P4HI[t],
+; because tbl_mul is page aligned).
 av_patch:
-.repeat NCTX, t
-    lda P4HI + t
-    sta .ident (.sprintf ("avop%02d", t))
-.endrepeat
+    lda #0
+    sta avn
+    lda #NCTX - 1
+    sta ucur
+    ldy #0
+@l:
+    lda P4HI,y
+    beq @skip
+    sty t0
+    ldx ucur
+    ldy avuoff,x                ; Y = this unit's byte offset (ldx abs,x does
+    sta avchain + 4, y          ; not exist, so the offset goes in Y and the
+    lda t0                      ; stores are abs,y)
+    clc
+    adc #>VBASE
+    sta avchain + 2, y          ; V page        = VBASE_hi + t
+    inc avn
+    dec ucur
+    ldy t0
+@skip:
+    iny
+    cpy avnt
+    bne @l
     rts
 
-; entry address of the chain unit that handles t = curpos
+avuoff:
+.repeat NCTX, u
+    .byte <(.ident (.sprintf ("avu%02d", u)) - avchain)
+.endrepeat
+
+; entry point for a chain carrying n live units, n = 0..NCTX
 avent_lo:
-.repeat NCTX, p
-    .byte <(.ident (.sprintf ("avu%02d", NCTX - 1 - p)))
+    .byte <avu_none
+.repeat NCTX, n
+    .byte <(.ident (.sprintf ("avu%02d", NCTX - 1 - n)))
 .endrepeat
 avent_hi:
-.repeat NCTX, p
-    .byte >(.ident (.sprintf ("avu%02d", NCTX - 1 - p)))
+    .byte >avu_none
+.repeat NCTX, n
+    .byte >(.ident (.sprintf ("avu%02d", NCTX - 1 - n)))
 .endrepeat
     .assert <avp <> $FF, error, "avp would hit the JMP-indirect page bug"
 
