@@ -1541,7 +1541,7 @@ long-range head the model *did* learn unable to pay for itself.
   aggregate gap is 0.0213 nats/char against a measured seed noise of 0.009 -
   **2.4x**, which is a real margin but not a comfortable one. The supporting
   evidence is much stronger than the headline: the matched-position gap at
-  positions 10-19 is 0.070 nats/char (7.8x seed noise) and the 12,000-step
+  positions 10-19 is 0.0713 nats/char (7.9x seed noise) and the 12,000-step
   sweep gap is 0.0483 (5.4x). A seed-2 replicate of both 60,000-step arms is
   running as this is written and its result is recorded below.
 * **`AV_SHIFT`, `K_SHIFT` and `W2_SHIFT` were not re-laddered at `T = 85`.**
