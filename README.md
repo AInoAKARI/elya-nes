@@ -19,6 +19,29 @@ seconds per token on a 1.79 MHz 2A03.
 
 Every number in `FINDINGS.md` is measured. Nothing here is estimated.
 
+### Is 29 characters of context the reason it cannot form a sentence? No.
+
+`T` is now a build parameter and the cartridge was rebuilt at the largest
+context its 32 KB of PRG-RAM can hold - **85 tokens, ~124 characters**, the KV
+cache spread across all four banks. Retrained on the identical recipe:
+
+| | T = 20 | T = 85 |
+|---|---|---|
+| val nats/char, seed 1 / seed 2 | **1.4133 / 1.4149** | **1.4347 / 1.4318** (worse) |
+| ROM vs host | 57/57 tokens exact | **252/252 tokens exact** |
+| mean cycles/token | 1,233,099 | **1,729,505** (+40%) |
+| attention share, last position | 22.0% | **54.1%** |
+| seconds/token, last position | 0.764 | **1.319** |
+
+Two seeds each, and **the two groups do not overlap**: the worst `T = 20` run
+beats the best `T = 85` run by 0.0169 nats/char, six times the within-context
+seed spread. The attention did learn to reach - layer 2's mean attention
+distance went from 0.91 to 7.82 and 13.7% of its mass now lands beyond what
+`T = 20` could see - and the loss got **worse** anyway. Held-out loss is flat from about position 10
+(~15 characters) in every model that has room to show it, and at matched
+positions the short-context model wins everywhere. **The ceiling is capacity,
+not context.** Full argument in `FINDINGS.md`.
+
 ## Quick start
 
 ```sh
@@ -58,13 +81,17 @@ ROM that runs perfectly and says the wrong thing.
 | primitives vs prior run | **19/19 match** |
 | bank crossings per token | **6** (36 cycles, 0.003% of a token) |
 | ternary kernel | **10.688 cycles/MAC** asymptotic vs the 8-cycle primitive |
-| ROM vs host reference | **19/19 tokens EXACT** at every one of 64 seed tokens: **1,216/1,216** |
-| trained model | val **2.0546 nats/token = 1.4133 nats/char** (uniform 4.1589) |
+| ROM vs host reference, T = 20 | **19/19 tokens EXACT** at every one of 64 seed tokens: **1,216/1,216** |
+| ROM vs host reference, T = 85 | **84/84 tokens EXACT**, at three independent seed tokens: **252/252** |
+| trained model (T = 20) | val **2.0546 nats/token = 1.4133 nats/char** (uniform 4.1589) |
+| trained model (T = 85) | val **2.0856 nats/token = 1.4347 nats/char** - longer context, worse |
 | nonzero weights | **52,207** of 102,400 (density 0.5098) |
-| cycles per token (trained) | 1,085,675 (pos 0) .. 1,147,754 (pos 18), mean **1,116,979** |
-| attention at full context | **86,142 cycles, 7.3%** of a token (was 302,624, 21.6%) |
+| cycles per token (T = 20, shipped) | 1,085,675 (pos 0) .. 1,147,754 (pos 18), mean **1,116,979** |
+| attention at full context (T = 20) | **86,142 cycles, 7.3%** of a token (was 302,624, 21.6%) |
 | attention kernels | **8.00 cycles/MAC** measured, self-modified operands in PRG-RAM |
-| wall clock at 1,789,772 Hz | **0.6241 s/token** |
+| wall clock at 1,789,772 Hz | **0.6241 s/token** at T = 20 |
+| cycles per token (T = 85, legacy attention) | 1,104,175 (pos 0) .. 2,360,222 (pos 83), mean **1,729,505** |
+| attention share at full context (T = 85) | **54.1%**, on the legacy kernels - see below |
 | independent emulator | ares 147 gives the **identical** 19 tokens (random-init build) |
 
 ## Layout
@@ -90,6 +117,8 @@ train/   prep_corpus.py   the 64-symbol charset, the BPE, the story-disjoint spl
          sidebyside.py    ROM vs host as decoded text
          sample.py        generate with ref.py and detokenise
          table.py         the results table, normalised per character
+         perpos.py        held-out loss POSITION BY POSITION
+         attnspan.py      how far back the attention actually reaches
 tools/   nes_bench.py      the instrument (write tap, no polling, GC-safe)
          run_calib.py      datasheet calibration report
          run_prim.py       primitive report
@@ -107,9 +136,15 @@ FINDINGS.md the journal, appended after every discrete result
 | (none) | `nn.nes` | the clean build; this is what the timing numbers come from |
 | `-DPROFILE` | `nnprof.nes` | X-preserving 12-cycle stage markers |
 | `-DBENCH` | `nnbench.nes` | drives the real `gather` over synthetic list lengths |
-| `-DDEBUG -DDBGPOS=n` | `nndbg.nes` | dumps intermediate state at position n |
+| `-DDEBUG -DDBGPOS=n` | `nndbg.nes` | dumps intermediate state at position n (`NCTX <= 20` only) |
 | `-DSEEDTOK=n` | | the seed token the ROM free-runs from (default 1) |
+| `-DNCTX=n` | | context length; **must match `NES_T`** for `host/ref.py`. 85 is the ceiling (`32768 / (L*2*D)`) |
 | `-DNSTREAM=9` + `rom/nn9.cfg` | | 9 weight-stream banks for a model denser than 0.559 |
+
+`NES_T` is passed to `build.sh` / `train/build_trained.sh` and reaches the
+packer, the trainer and the assembler from that one place. The trainer stamps
+`T` into the npz and `ref.Model.from_npz` refuses to load a mismatch, for the
+same reason it refuses a requantise-shift mismatch.
 
 The requantise shifts (`KSHIFT`, `W2SHIFT`, `AVSHIFT`, `SMSHIFT`) are
 **generated** by `host/ref.py` into `out/model/shifts.inc` and included by

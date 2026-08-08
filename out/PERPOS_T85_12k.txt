@@ -1,0 +1,17 @@
+model      runs/t85_tau0.75.npz
+T = 85   logit_scale 0.045172   chars/token 1.454   (20 x 96 val windows)
+
+positions    nats/token     nats/char     
+0-4          2.5819         1.7761        
+5-9          2.3052         1.5857        
+10-19        2.2828         1.5703        
+20-39        2.2648         1.5579        
+40-59        2.2634         1.5569        
+60-84        2.2788         1.5675        
+
+positions 0-19  2.3632 nats/token  1.6256 nats/char   <- also visible to T=20
+positions 20-84 2.2697 nats/token  1.5613 nats/char   <- beyond T=20's reach
+
+IMPROVEMENT FROM CONTEXT BEYOND 20 TOKENS: 0.0643 nats/char (3.95%)
+
+ALL POSITIONS  2.2917 nats/token  1.5764 nats/char

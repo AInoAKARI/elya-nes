@@ -1,0 +1,9 @@
+weights: runs/t85_final_tau0.75.npz
+Measured over the real 84-token trajectory, sign-separated lists:
+  block      blocks  max |v|    signed >127    biased >255
+  16         381444      202              0              0
+  32         250908      370            114          19594
+
+Worst case by construction: block*14 biased, block*7 signed.
+  block 16 -> 224 biased / 112 signed : both provably in range
+  block 32 -> 448 biased / 224 signed : both provably OUT of range

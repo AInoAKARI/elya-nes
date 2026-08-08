@@ -5,3 +5,5 @@ __pycache__/
 *.pyc
 data/TinyStories-*.txt
 data/*.npy
+runs/*_ckpt.npz
+runs/*_ckpt.json

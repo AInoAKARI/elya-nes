@@ -1,0 +1,178 @@
+status: OK
+marker events: 169
+
+ROM vs HOST, token by token
+  pos  rom      host     
+  0    0        0        ok
+  1    2        2        ok
+  2    10       10       ok
+  3    26       26       ok
+  4    5        5        ok
+  5    4        4        ok
+  6    11       11       ok
+  7    19       19       ok
+  8    19       19       ok
+  9    19       19       ok
+  10   19       19       ok
+  11   19       19       ok
+  12   7        7        ok
+  13   61       61       ok
+  14   26       26       ok
+  15   5        5        ok
+  16   17       17       ok
+  17   8        8        ok
+  18   59       59       ok
+  19   3        3        ok
+  20   18       18       ok
+  21   27       27       ok
+  22   38       38       ok
+  23   36       36       ok
+  24   43       43       ok
+  25   13       13       ok
+  26   19       19       ok
+  27   56       56       ok
+  28   62       62       ok
+  29   15       15       ok
+  30   11       11       ok
+  31   0        0        ok
+  32   46       46       ok
+  33   22       22       ok
+  34   54       54       ok
+  35   7        7        ok
+  36   26       26       ok
+  37   7        7        ok
+  38   8        8        ok
+  39   48       48       ok
+  40   12       12       ok
+  41   63       63       ok
+  42   26       26       ok
+  43   2        2        ok
+  44   0        0        ok
+  45   12       12       ok
+  46   33       33       ok
+  47   19       19       ok
+  48   14       14       ok
+  49   26       26       ok
+  50   57       57       ok
+  51   26       26       ok
+  52   12       12       ok
+  53   63       63       ok
+  54   38       38       ok
+  55   0        0        ok
+  56   8        8        ok
+  57   3        3        ok
+  58   58       58       ok
+  59   29       29       ok
+  60   8        8        ok
+  61   26       26       ok
+  62   24       24       ok
+  63   49       49       ok
+  64   26       26       ok
+  65   51       51       ok
+  66   21       21       ok
+  67   33       33       ok
+  68   24       24       ok
+  69   49       49       ok
+  70   26       26       ok
+  71   12       12       ok
+  72   0        0        ok
+  73   10       10       ok
+  74   33       33       ok
+  75   24       24       ok
+  76   49       49       ok
+  77   26       26       ok
+  78   12       12       ok
+  79   0        0        ok
+  80   13       13       ok
+  81   26       26       ok
+  82   24       24       ok
+  83   49       49       ok
+
+TOKENS MATCHING: 84/84  -> EXACT
+
+CYCLES PER TOKEN (exact, from the write tap)
+  pos 0      1137654 cycles     0.6356 s @ 1789772 Hz
+  pos 1      1151980 cycles     0.6436 s @ 1789772 Hz
+  pos 2      1165985 cycles     0.6515 s @ 1789772 Hz
+  pos 3      1180570 cycles     0.6596 s @ 1789772 Hz
+  pos 4      1194635 cycles     0.6675 s @ 1789772 Hz
+  pos 5      1208578 cycles     0.6753 s @ 1789772 Hz
+  pos 6      1222774 cycles     0.6832 s @ 1789772 Hz
+  pos 7      1236873 cycles     0.6911 s @ 1789772 Hz
+  pos 8      1258865 cycles     0.7034 s @ 1789772 Hz
+  pos 9      1272999 cycles     0.7113 s @ 1789772 Hz
+  pos 10     1287034 cycles     0.7191 s @ 1789772 Hz
+  pos 11     1301192 cycles     0.7270 s @ 1789772 Hz
+  pos 12     1315453 cycles     0.7350 s @ 1789772 Hz
+  pos 13     1330144 cycles     0.7432 s @ 1789772 Hz
+  pos 14     1344346 cycles     0.7511 s @ 1789772 Hz
+  pos 15     1357731 cycles     0.7586 s @ 1789772 Hz
+  pos 16     1379456 cycles     0.7707 s @ 1789772 Hz
+  pos 17     1393472 cycles     0.7786 s @ 1789772 Hz
+  pos 18     1407794 cycles     0.7866 s @ 1789772 Hz
+  pos 19     1423476 cycles     0.7953 s @ 1789772 Hz
+  pos 20     1436876 cycles     0.8028 s @ 1789772 Hz
+  pos 21     1451811 cycles     0.8112 s @ 1789772 Hz
+  pos 22     1466888 cycles     0.8196 s @ 1789772 Hz
+  pos 23     1479516 cycles     0.8267 s @ 1789772 Hz
+  pos 24     1502717 cycles     0.8396 s @ 1789772 Hz
+  pos 25     1515974 cycles     0.8470 s @ 1789772 Hz
+  pos 26     1529568 cycles     0.8546 s @ 1789772 Hz
+  pos 27     1543276 cycles     0.8623 s @ 1789772 Hz
+  pos 28     1558349 cycles     0.8707 s @ 1789772 Hz
+  pos 29     1573325 cycles     0.8791 s @ 1789772 Hz
+  pos 30     1586589 cycles     0.8865 s @ 1789772 Hz
+  pos 31     1600183 cycles     0.8941 s @ 1789772 Hz
+  pos 32     1622041 cycles     0.9063 s @ 1789772 Hz
+  pos 33     1636428 cycles     0.9143 s @ 1789772 Hz
+  pos 34     1650452 cycles     0.9222 s @ 1789772 Hz
+  pos 35     1664788 cycles     0.9302 s @ 1789772 Hz
+  pos 36     1678818 cycles     0.9380 s @ 1789772 Hz
+  pos 37     1692786 cycles     0.9458 s @ 1789772 Hz
+  pos 38     1707613 cycles     0.9541 s @ 1789772 Hz
+  pos 39     1721640 cycles     0.9619 s @ 1789772 Hz
+  pos 40     1744810 cycles     0.9749 s @ 1789772 Hz
+  pos 41     1759167 cycles     0.9829 s @ 1789772 Hz
+  pos 42     1773073 cycles     0.9907 s @ 1789772 Hz
+  pos 43     1786848 cycles     0.9984 s @ 1789772 Hz
+  pos 44     1801166 cycles     1.0064 s @ 1789772 Hz
+  pos 45     1816136 cycles     1.0147 s @ 1789772 Hz
+  pos 46     1829897 cycles     1.0224 s @ 1789772 Hz
+  pos 47     1843792 cycles     1.0302 s @ 1789772 Hz
+  pos 48     1865634 cycles     1.0424 s @ 1789772 Hz
+  pos 49     1879093 cycles     1.0499 s @ 1789772 Hz
+  pos 50     1894080 cycles     1.0583 s @ 1789772 Hz
+  pos 51     1908879 cycles     1.0665 s @ 1789772 Hz
+  pos 52     1922295 cycles     1.0740 s @ 1789772 Hz
+  pos 53     1937790 cycles     1.0827 s @ 1789772 Hz
+  pos 54     1950520 cycles     1.0898 s @ 1789772 Hz
+  pos 55     1964470 cycles     1.0976 s @ 1789772 Hz
+  pos 56     1986674 cycles     1.1100 s @ 1789772 Hz
+  pos 57     1999576 cycles     1.1172 s @ 1789772 Hz
+  pos 58     2014005 cycles     1.1253 s @ 1789772 Hz
+  pos 59     2030517 cycles     1.1345 s @ 1789772 Hz
+  pos 60     2044043 cycles     1.1421 s @ 1789772 Hz
+  pos 61     2057499 cycles     1.1496 s @ 1789772 Hz
+  pos 62     2072362 cycles     1.1579 s @ 1789772 Hz
+  pos 63     2086162 cycles     1.1656 s @ 1789772 Hz
+  pos 64     2108859 cycles     1.1783 s @ 1789772 Hz
+  pos 65     2123352 cycles     1.1864 s @ 1789772 Hz
+  pos 66     2136445 cycles     1.1937 s @ 1789772 Hz
+  pos 67     2151787 cycles     1.2023 s @ 1789772 Hz
+  pos 68     2164566 cycles     1.2094 s @ 1789772 Hz
+  pos 69     2178937 cycles     1.2174 s @ 1789772 Hz
+  pos 70     2193410 cycles     1.2255 s @ 1789772 Hz
+  pos 71     2207978 cycles     1.2337 s @ 1789772 Hz
+  pos 72     2230796 cycles     1.2464 s @ 1789772 Hz
+  pos 73     2243672 cycles     1.2536 s @ 1789772 Hz
+  pos 74     2259133 cycles     1.2622 s @ 1789772 Hz
+  pos 75     2272136 cycles     1.2695 s @ 1789772 Hz
+  pos 76     2285904 cycles     1.2772 s @ 1789772 Hz
+  pos 77     2300839 cycles     1.2855 s @ 1789772 Hz
+  pos 78     2315662 cycles     1.2938 s @ 1789772 Hz
+  pos 79     2331030 cycles     1.3024 s @ 1789772 Hz
+  pos 80     2352938 cycles     1.3147 s @ 1789772 Hz
+  pos 81     2367267 cycles     1.3227 s @ 1789772 Hz
+  pos 82     2380348 cycles     1.3300 s @ 1789772 Hz
+  pos 83     2393953 cycles     1.3376 s @ 1789772 Hz
+  TOTAL    148158149 cycles    82.7805 s   (mean 1763787 cycles/token)

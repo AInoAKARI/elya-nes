@@ -1,0 +1,15 @@
+t85_tau0.75                  step     1  fit 7.4726  val 7.4562  density 0.5493  3s
+t85_tau0.75                  step  4000  fit 2.5565  val 2.5522  density 0.5384  316s
+t85_tau0.75                  step  8000  fit 2.4629  val 2.4657  density 0.5332  629s
+t85_tau0.75                  step 12000  fit 2.2941  val 2.2899  density 0.5346  941s
+FINAL t85_tau0.75              fit 2.2903  val 2.2933  (uniform 4.1589)  nnz 54743/102400 = 0.5346
+t85_tau1.00                  step     1  fit 6.7135  val 6.7128  density 0.4253  3s
+t85_tau1.00                  step  4000  fit 2.5734  val 2.5715  density 0.4154  667s
+t85_tau1.00                  step  8000  fit 2.4462  val 2.4533  density 0.4095  1349s
+t85_tau1.00                  step 12000  fit 2.3064  val 2.3045  density 0.4105  2060s
+FINAL t85_tau1.00              fit 2.3054  val 2.3081  (uniform 4.1589)  nnz 42033/102400 = 0.4105
+t85_tau0.50                  step     1  fit 8.6856  val 8.6754  density 0.6921  8s
+t85_tau0.50                  step  4000  fit 2.5897  val 2.5876  density 0.6687  785s
+t85_tau0.50                  step  8000  fit 2.4436  val 2.4473  density 0.6584  1452s
+t85_tau0.50                  step 12000  fit 2.2880  val 2.2849  density 0.6574  2077s
+FINAL t85_tau0.50              fit 2.2858  val 2.2904  (uniform 4.1589)  nnz 67313/102400 = 0.6574

@@ -1,0 +1,11 @@
+model      runs/tsweep_T20.npz
+T = 20   logit_scale 0.047913   chars/token 1.454   (20 x 96 val windows)
+
+positions    nats/token     nats/char     
+0-4          2.4241         1.6675        
+5-9          2.1332         1.4674        
+10-19        2.1677         1.4911        
+
+positions 0-19  2.2232 nats/token  1.5293 nats/char   <- also visible to T=20
+
+ALL POSITIONS  2.2232 nats/token  1.5293 nats/char

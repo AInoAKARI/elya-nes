@@ -28,8 +28,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # ---- shape: settled, see DESIGN.md -----------------------------------------
-V, D, L, H, DH, FF, T = 64, 64, 3, 2, 32, 128, 20
 import os
+V, D, L, H, DH, FF = 64, 64, 3, 2, 32, 128
+# T is the only shape knob that varies; see host/ref.py for the KV bound.
+# Keep NES_T identical here and in host/ref.py - the trainer stamps it into the
+# npz and ref.Model.from_npz refuses to load a mismatch.
+T = int(os.environ.get("NES_T", "20"))
 K_SHIFT  = int(os.environ.get("NES_K_SHIFT", "2"))
 W2_SHIFT = int(os.environ.get("NES_W2_SHIFT", "3"))
 AV_SHIFT = int(os.environ.get("NES_AV_SHIFT", "2"))
@@ -64,6 +68,55 @@ def floor_prod(a, b, k=MUL_SHIFT):
     return ste(p / (1 << k), torch.floor(p / (1 << k)))
 
 
+# ---------------------------------------------------------------------------
+# The two attention contractions, written so the (B, H, T, T, DH) intermediate
+# never enters the autograd graph.
+#
+# sum_t ste(a_t, b_t) == ste(sum_t a_t, sum_t b_t), because the detached term
+# is linear in the sum.  So a sum of per-element straight-through products is
+# EXACTLY a straight-through of (plain matmul, exact floored sum) - identical
+# forward value and identical gradient, with the elementwise tensor confined to
+# a no_grad chunk that is freed immediately.
+#
+# At T = 20 the naive form allocates 20 MB per layer and nobody notices.  At
+# T = 85 it allocates 355 MB per layer three times over and the run OOMs on an
+# 8 GB card.  train/test_equiv.py proves the rewrite did not change the model.
+# ---------------------------------------------------------------------------
+_CHUNK = 16
+
+
+def _hard_qk(q, k):
+    """sum_d floor(q[.,i,d] * k[.,j,d] / 4), exact, outside autograd."""
+    B, H, T, _ = q.shape
+    out = q.new_empty(B, H, T, T)
+    with torch.no_grad():
+        kk = k.unsqueeze(2)
+        for i in range(0, T, _CHUNK):
+            p = q[:, :, i:i + _CHUNK].unsqueeze(3) * kk
+            out[:, :, i:i + _CHUNK] = torch.floor(p / (1 << MUL_SHIFT)).sum(-1)
+    return out
+
+
+def _hard_av(p, v):
+    """sum_t floor(p[.,i,t] * v[.,t,d] / 4), exact, outside autograd."""
+    B, H, T, _ = p.shape
+    out = v.new_empty(B, H, T, v.shape[-1])
+    with torch.no_grad():
+        vv = v.unsqueeze(2)
+        for i in range(0, T, _CHUNK):
+            pr = p[:, :, i:i + _CHUNK].unsqueeze(-1) * vv
+            out[:, :, i:i + _CHUNK] = torch.floor(pr / (1 << MUL_SHIFT)).sum(3)
+    return out
+
+
+def qk_scores(q, k):
+    return ste((q @ k.transpose(-1, -2)) / (1 << MUL_SHIFT), _hard_qk(q, k))
+
+
+def av_sum(p, v):
+    return ste((p @ v) / (1 << MUL_SHIFT), _hard_av(p, v))
+
+
 def softmax_q(scores, mask, exptab):
     """Quantised softmax, bit-identical to ref.softmax_q.
 
@@ -80,7 +133,7 @@ def softmax_q(scores, mask, exptab):
     # kk = smallest k with (S >> k) <= 8.  floor(S / 2^k) <= 8  <=>  2^k >= ...
     kk = torch.zeros_like(S)
     cur = S.clone()
-    for _ in range(12):                               # S <= 20*64 = 1280 < 2^11
+    for _ in range(16):                               # S <= T*64 = 5440 < 2^13
         step = (torch.floor(cur / 2 ** kk) > SM_SUM).float()
         kk = kk + step
         if step.sum() == 0:
@@ -193,10 +246,13 @@ class NesModel(nn.Module):
             qh, kh, vh = heads(q), heads(k), heads(v)
             # scores[b,h,i,j] = sum_d floor(q[i,d]*k[j,d] / 4)
             if self.qa:
-                sc = floor_prod(qh.unsqueeze(3), kh.unsqueeze(2)).sum(-1)  # (B,H,T,T)
+                sc = qk_scores(qh, kh)                            # (B,H,T,T)
                 pr = softmax_q(sc, mask.expand(B, H, Tn, Tn), self.exptab)
-                av = floor_prod(pr.unsqueeze(-1), vh.unsqueeze(2))
-                av = torch.where(mask.unsqueeze(-1), av, torch.zeros_like(av)).sum(3)
+                # zeroing outside the causal mask kills both the value and the
+                # gradient there, exactly as the previous `where(mask, ., 0)`
+                # after the elementwise product did
+                pr = pr * mask.to(pr.dtype)
+                av = av_sum(pr, vh)
                 att = q_ste(av, AV_SHIFT)
             else:
                 sc = (qh @ kh.transpose(-1, -2)) / (1 << MUL_SHIFT)

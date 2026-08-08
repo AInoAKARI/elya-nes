@@ -22,7 +22,14 @@ L  = 3           # layers
 H  = 2           # heads
 DH = 32          # d_head  (H * DH == D)
 F  = 128         # d_ff
-T  = 20          # context positions
+T  = int(os.environ.get("NES_T", "20"))   # context positions
+
+# T is the ONLY shape knob that varies.  It is bounded by the KV cache, which
+# is L * T * 2 * D bytes of PRG-RAM at one byte per 4-bit activation:
+#   T = 20 ->  7,680 B, 23.4% of the 32,768 B window (one 8 KB bank)
+#   T = 85 -> 32,640 B, 99.6% of it - the largest context this cartridge holds
+# rom/nn.s takes the same value through -DNCTX and asserts the cache fits.
+assert 1 <= T <= 85, "T must be 1..85; L*T*2*D must fit 32 KB of PRG-RAM"
 
 BLOCK    = 16    # gather block size; 16*14 = 224 < 256 keeps the carry clear
 BIAS     = 7     # activations stored as value+7 in 0..14
@@ -206,6 +213,15 @@ class Model:
         quantisation, not two that happen to agree."""
         import numpy as np
         z = np.load(path)
+        if "_ctx" in z:
+            got = int(z["_ctx"][0])
+            if got != T:
+                raise SystemExit(
+                    "%s was trained at T = %d but this reference is configured "
+                    "for T = %d.  Set NES_T=%d, or retrain.  (The positional "
+                    "table is the only array whose shape shows it, and a "
+                    "silent truncation there is exactly the class of bug this "
+                    "repo keeps getting caught by.)" % (path, got, T, got))
         if "_shifts" in z:
             want = [K_SHIFT, W2_SHIFT, AV_SHIFT, SM_SHIFT]
             got = [int(v) for v in z["_shifts"]]
@@ -295,6 +311,11 @@ class Runner:
         self.K = [[[0] * D for _ in range(T)] for _ in range(L)]
         self.Vc = [[[0] * D for _ in range(T)] for _ in range(L)]
         self.trace = []
+        # Opt-in observation only.  Setting this appends (layer, head, pos,
+        # probability vector) for every attention head evaluated; it changes no
+        # arithmetic and defaults to off so the specification path is unaltered.
+        self.record_attn = False
+        self.attn_log = []
 
     def step(self, tok, p):
         m = self.m
@@ -320,6 +341,8 @@ class Runner:
                         s += MUL[(nib(q[base + j]) << 4) | self.K[l][t][base + j]]
                     scores.append(s - MUL_BIAS * DH)
                 pr = softmax_q(scores)
+                if self.record_attn:
+                    self.attn_log.append((l, h, p, list(pr)))
                 dbg["scores"] = list(scores)
                 dbg["p"] = list(pr)
                 for j in range(DH):
@@ -498,7 +521,7 @@ def pack(model, outdir):
 
 def main():
     outdir = sys.argv[1] if len(sys.argv) > 1 else "out/model"
-    ntok = int(sys.argv[2]) if len(sys.argv) > 2 else 19
+    ntok = int(sys.argv[2]) if len(sys.argv) > 2 else T - 1
     npz = sys.argv[3] if len(sys.argv) > 3 else os.environ.get("NES_WEIGHTS")
     seed_tok = int(os.environ.get("NES_SEED_TOK", "1"))
     os.makedirs(outdir, exist_ok=True)

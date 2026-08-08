@@ -109,6 +109,34 @@ def main():
         (0.5 * (1 + math.cos(math.pi * min(1.0, s / a.steps)))) if s > a.warmup
         else (s + 1) / a.warmup)
 
+    # Save the exportable artifact at every eval, not only at the end.  A
+    # T = 85 run is ~19x the wall clock of a T = 20 one and this box shares its
+    # GPU with other work, so "the process died at hour three" is a real
+    # failure mode and losing the whole run to it is avoidable.
+    def save(fl, vl, nnz, tot, hist, tag=""):
+        z = model.export_int()
+        # Stamp the requantise shifts INTO the weights file.  A model trained
+        # at one AV_SHIFT and evaluated at another produces a lower loss and
+        # visibly worse text with nothing anywhere raising, which happened here
+        # once.
+        z["_shifts"] = np.array([M.K_SHIFT, M.W2_SHIFT, M.AV_SHIFT, M.SM_SHIFT],
+                                dtype=np.int16)
+        # Same argument for the context length: an npz trained at one T loaded
+        # at another gives a positional table of the wrong height, and the only
+        # thing that would have caught it was a bare assert.
+        z["_ctx"] = np.array([M.T], dtype=np.int16)
+        np.savez(os.path.join(a.out, name + tag + ".npz"), **z)
+        meta = dict(name=name + tag, vocab=a.vocab, tau=a.tau, mode=a.mode,
+                    quant=a.quant, ctx=M.T, k_shift=M.K_SHIFT,
+                    w2_shift=M.W2_SHIFT, av_shift=M.AV_SHIFT, sm_shift=M.SM_SHIFT,
+                    steps=a.steps, batch=a.batch, lr=a.lr, seed=a.seed,
+                    logit_scale=float(scale().detach()) if a.learn_scale
+                                else a.logit_scale,
+                    fit=fl, val=vl, nnz=nnz, weights=tot, density=nnz / tot,
+                    uniform=math.log(M.V), hist=hist, secs=time.time() - t0)
+        json.dump(meta, open(os.path.join(a.out, name + tag + ".json"), "w"),
+                  indent=1)
+
     hist = []
     t0 = time.time()
     for step in range(a.steps):
@@ -129,24 +157,12 @@ def main():
                              density=nnz / tot, secs=time.time() - t0))
             print("%-28s step %5d  fit %.4f  val %.4f  density %.4f  %.0fs"
                   % (name, step + 1, fl, vl, nnz / tot, time.time() - t0), flush=True)
+            save(fl, vl, nnz, tot, hist, tag="_ckpt")
 
     fl = evaluate(model, fit, a.batch, M.T, 60, gev, scale)
     vl = evaluate(model, val, a.batch, M.T, 60, gev, scale)
     nnz, tot = sparsity(model)
-    z = model.export_int()
-    # Stamp the requantise shifts INTO the weights file.  A model trained at
-    # one AV_SHIFT and evaluated at another produces a lower loss and visibly
-    # worse text with nothing anywhere raising, which happened here once.
-    z["_shifts"] = np.array([M.K_SHIFT, M.W2_SHIFT, M.AV_SHIFT, M.SM_SHIFT],
-                            dtype=np.int16)
-    np.savez(os.path.join(a.out, name + ".npz"), **z)
-    meta = dict(name=name, vocab=a.vocab, tau=a.tau, mode=a.mode, quant=a.quant,
-                k_shift=M.K_SHIFT, w2_shift=M.W2_SHIFT, av_shift=M.AV_SHIFT,
-                steps=a.steps, batch=a.batch, lr=a.lr, seed=a.seed,
-                logit_scale=float(scale().detach()) if a.learn_scale else a.logit_scale, fit=fl, val=vl, nnz=nnz, weights=tot,
-                density=nnz / tot, uniform=math.log(M.V), hist=hist,
-                secs=time.time() - t0)
-    json.dump(meta, open(os.path.join(a.out, name + ".json"), "w"), indent=1)
+    save(fl, vl, nnz, tot, hist)
     print("FINAL %-24s fit %.4f  val %.4f  (uniform %.4f)  nnz %d/%d = %.4f"
           % (name, fl, vl, math.log(M.V), nnz, tot, nnz / tot))
     return 0

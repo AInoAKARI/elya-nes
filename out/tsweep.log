@@ -1,0 +1,12 @@
+tsweep_T10                   step     1  fit 7.3337  val 7.3239  density 0.5488  3s
+tsweep_T10                   step  6000  fit 2.4764  val 2.4656  density 0.5409  409s
+tsweep_T10                   step 12000  fit 2.3056  val 2.3133  density 0.5404  799s
+FINAL tsweep_T10               fit 2.2999  val 2.3051  (uniform 4.1589)  nnz 55335/102400 = 0.5404
+tsweep_T20                   step     1  fit 8.1972  val 8.2335  density 0.5503  3s
+tsweep_T20                   step  6000  fit 2.4124  val 2.4127  density 0.5383  446s
+tsweep_T20                   step 12000  fit 2.2321  val 2.2216  density 0.5373  877s
+FINAL tsweep_T20               fit 2.2180  val 2.2231  (uniform 4.1589)  nnz 55018/102400 = 0.5373
+tsweep_T40                   step     1  fit 7.0064  val 7.0076  density 0.5504  5s
+tsweep_T40                   step  6000  fit 2.4189  val 2.4183  density 0.5373  611s
+tsweep_T40                   step 12000  fit 2.2240  val 2.2325  density 0.5343  1209s
+FINAL tsweep_T40               fit 2.2290  val 2.2310  (uniform 4.1589)  nnz 54714/102400 = 0.5343

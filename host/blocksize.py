@@ -8,7 +8,8 @@ cancellation make a mixed-sign sum grow like sqrt(n) rather than n.
 That argument does not obviously carry over to a SIGN-SEPARATED kernel, where
 every term inside a block comes from the same index list and therefore has the
 same sign - there is nothing left to cancel.  So measure it: run the real
-model over the real 19-token trajectory and histogram the actual block sums.
+model over the real (T-1)-token trajectory and histogram the actual block
+sums.
 """
 import os
 import sys
@@ -47,11 +48,12 @@ def main():
         return orig(pos_idx, neg_idx, actb)
 
     ref.ternary_row = watched
-    for p in range(19):
+    for p in range(ref.T - 1):
         cur = r.step(cur, p)
     ref.ternary_row = orig
 
-    print("Measured over the real 19-token trajectory, sign-separated lists:")
+    print("Measured over the real %d-token trajectory, sign-separated lists:"
+          % (ref.T - 1))
     print("  %-6s %10s %8s %14s %14s" % ("block", "blocks", "max |v|",
                                          "signed >127", "biased >255"))
     for b in (16, 32):

@@ -11,8 +11,18 @@ SEED=${2:-1}
 [ -n "$NPZ" ] || { echo "usage: build_trained.sh <npz> [seed_tok]"; exit 2; }
 
 mkdir -p out out/model
+NES_T=${NES_T:-20}
+export NES_T
+# A denser model needs more than the seven 8 KB weight-stream banks.  The
+# packer, the assembler and the linker config all have to agree about how many,
+# so it is set in ONE place here.
+NES_STREAM_BANKS=${NES_STREAM_BANKS:-7}
+export NES_STREAM_BANKS
+if [ "$NES_STREAM_BANKS" -eq 7 ]; then CFG=rom/nn.cfg
+elif [ "$NES_STREAM_BANKS" -eq 9 ]; then CFG=rom/nn9.cfg
+else echo "no linker config for $NES_STREAM_BANKS stream banks"; exit 2; fi
 NES_WEIGHTS="$NPZ" NES_SEED_TOK="$SEED" \
-    python3 host/ref.py out/model 19 | tee out/model/pack_report.txt
+    python3 host/ref.py out/model | tee out/model/pack_report.txt
 
 echo
 python3 train/verify_pack.py "$NPZ" --dir out/model | tail -6
@@ -22,8 +32,10 @@ build() {
     name=$1; src=$2; cfg=$3; shift 3
     ca65 -I rom -I out/model "$@" -o "out/$name.o" "$src"
     ld65 -C "$cfg" -o "out/$name.nes" -Ln "out/$name.lbl" "out/$name.o" 2>&1 \
-        | grep -v "Segment 'CHARS' does not exist" || true
+        | grep -v "Segment 'CHARS' does not exist" \
+        | grep -v "Segment 'POS' does not exist" || true
 }
-build nn      rom/nn.s rom/nn.cfg -DSEEDTOK=$SEED
-build nnprof  rom/nn.s rom/nn.cfg -DSEEDTOK=$SEED -DPROFILE
+DEFS="-DNCTX=$NES_T -DNSTREAM=$NES_STREAM_BANKS -DSEEDTOK=$SEED"
+build nn      rom/nn.s $CFG $DEFS
+build nnprof  rom/nn.s $CFG $DEFS -DPROFILE
 ls -l out/nn.nes out/nnprof.nes

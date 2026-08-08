@@ -27,8 +27,41 @@ NLAYER   = 3
 NHEAD    = 2
 NDHEAD   = 32
 NFF      = 128
+
+; ---- context length -------------------------------------------------------
+; NCTX is the only shape knob that varies, and host/ref.py must be given the
+; SAME value through NES_T.
+;
+; The old interleaved KV cache was bounded only by the 32 KB of PRG-RAM the
+; MMC5 windows at $6000, which allowed NCTX up to 85.  The attention kernels
+; bound it far harder, and the bound is ADDRESSING, not capacity - see the
+; ATTN_TMAX arithmetic below.  A build above the ceiling does not assemble.
+.ifndef NCTX
 NCTX     = 20
-NTOKGEN  = 19               ; >= 16, the verification bar
+.endif
+NTOKGEN  = NCTX - 1         ; >= 16, the verification bar
+
+; ---- the context ceiling the attention kernels impose ---------------------
+; Both kernels reach their cache with `ldx <build-time constant>, y`, which is
+; what keeps the accumulator in A (see the RAMKERN comments).  That costs two
+; hard limits:
+;
+;   QK   ldx KTBASE + d*64, y      y = curlay*NCTX + t
+;        y is ONE BYTE and the d stride is 64, so the whole (layer, t) index
+;        must fit in the 64-byte row:   NLAYER * NCTX <= 64  ->  NCTX <= 21
+;
+;   AV   ldx VBASE + t*256, y      y = curlay*64 + d
+;        the base is an assembled absolute address inside the $6000 window,
+;        so VBASE + (NCTX-1)*256 + 255 <= $7FFF  ->  NCTX <= 32
+;
+; The binding one is QK's.  Raising it means giving K a stride of NLAYER*NCTX
+; instead of 64, which at NCTX = 85 makes the key cache 64 * 255 = 16,320
+; bytes - two PRG-RAM banks - and the kernel's assembled absolute addresses
+; cannot cross a bank.  See FINDINGS, "Why the two branches do not both fit".
+ATTN_TMAX = 64 / NLAYER
+    .assert NLAYER * NCTX <= 64, error, "NCTX above the QK kernel's ceiling: the key cache row is 64 bytes and holds NLAYER*NCTX entries"
+    .assert (NCTX - 1) * 256 + 255 <= $1FFF, error, "NCTX above the AV kernel's ceiling: V[t] pages leave the $6000 window"
+    .assert NTOKGEN >= 16, error, "NTOKGEN below the 16-token verification bar"
 
 ; seed token: the ROM free-runs from a single token, so this is the whole
 ; prompt.  Overridable from the build (-DSEEDTOK=nn) so the same weights can
@@ -44,9 +77,18 @@ SEEDTOK  = 1
 .ifndef NSTREAM
 NSTREAM  = 7
 .endif
-EMBBANK  = $80 + NSTREAM          ; $A000 window: embedding + positions
-TBLBANK  = $80 + NSTREAM + 1      ; $C000 window: row headers + tables
-CODEBANK = $80 + NSTREAM + 2      ; $E000 window: code, chains, vectors
+; The embedding is NVOCAB*NDMODEL = 4,096 bytes and the positional table is
+; NCTX*NDMODEL.  While the two fit one 8 KB window together they share the
+; $A000 bank and `embed_pos` never switches; when they do not, the positional
+; table gets a bank of its own and embed_pos pays two bank writes per token.
+; The bank NUMBERS do not move either way, so the linker config, the iNES
+; header and the ROM image are the same size in both cases.
+POSINEMB = (NVOCAB + NCTX) * NDMODEL <= $2000
+EMBBANK  = $80 + NSTREAM          ; $A000 window: embedding (+ positions)
+POSBANK  = $80 + NSTREAM + 1      ; $A000 window: positional table
+TBLBANK  = $80 + NSTREAM + 2      ; $C000 window: row headers + tables
+CODEBANK = $80 + NSTREAM + 4      ; $E000 window: code, chains, vectors
+                                  ; ($80 + NSTREAM + 3 is the spare bank)
 
 BIASV    = 7
 BLOCKSZ  = 16
@@ -93,18 +135,31 @@ PMARK_COST = 12
 .endmacro
 
 ; ---- fixed pages in system RAM (constants, NOT bss - see nn.cfg) ----------
+; The per-position arrays (SCORL, SCORH, EXPE, P4HI) are NCTX entries each, so
+; they are sized by NCTX rather than by the T = 20 constants the first cut
+; used.  Three of them fit page 7 alongside nothing else; P4HI goes in BSS,
+; where the linker's $0200-$02FF cap turns an overflow into a LINK ERROR
+; rather than a silent collision with the marker port.  Every base below is
+; chosen so that base_lo + max_index <= 255, i.e. NO indexed access here
+; crosses a page.
 ACTB   = $0400              ; biased activation input page (the adc target)
 OUTB   = $0500              ; signed matmul output, up to 128 entries
-XVEC   = $0600              ; residual stream x[0..63], signed
-Q4HI   = $0640              ; (q & 15) << 4
-ATTV   = $0680              ; attention output, signed
+XVEC   = $0580              ; residual stream x[0..63], signed
+Q4HI   = $05C0              ; (q & 15) << 4
+ATTV   = $0600              ; attention output, signed
 SCORL  = $0700
-SCORH  = $0720
-EXPE   = $0740
-P4HI   = $0760
+SCORH  = SCORL + NCTX
+EXPE   = SCORH + NCTX
+    .assert EXPE + NCTX <= $0800, error, "score arrays overflow page 7"
+    .assert <SCORH + NCTX - 1 < 256, error, "SCORH,y would cross a page"
+    .assert <EXPE + NCTX - 1 < 256, error, "EXPE,y would cross a page"
 
-EMBED   = $A000
-POSTAB  = $A000 + NVOCAB * NDMODEL
+EMBED   = $A000             ; EMBBANK
+.if POSINEMB
+POSTAB  = $A000 + NVOCAB * NDMODEL   ; same bank as the embedding
+.else
+POSTAB  = $A000                      ; POSBANK - a bank of its own
+.endif
 HEADERS = $C000
 KVBASE  = $6000
 
@@ -123,16 +178,31 @@ KVBASE  = $6000
 ; there d is the unrolled/patched axis and t is the register axis, and the
 ; cache has to be TRANSPOSED for the address to be linear in t:
 ;
-;   KT[d][l][t] = KTBASE + d*64 + (l*20 + t)
+;   KT[d][l][t] = KTBASE + d*64 + (l*NCTX + t)
 ;
-; 64-byte d stride, index l*20+t <= 59, so `ldx KTBASE+d*64,y` never crosses
-; a page either.  K and V therefore want OPPOSITE layouts, which is why they
-; live in different PRG-RAM banks.
+; 64-byte d stride, index l*NCTX+t <= NLAYER*NCTX-1 <= 63, so
+; `ldx KTBASE+d*64,y` never crosses a page either.  K and V therefore want
+; OPPOSITE layouts, which is why they live in different PRG-RAM banks.
+;
+; That accounts for three of the four PRG-RAM banks: 4 = keys, 5 = kernels,
+; 6 = values.  Bank 7 is free.  It is also why the T = 85 context experiment
+; cannot be built on top of this: at NCTX = 85 the two caches alone need
+; 3*85*2*64 = 32,640 bytes, all four banks, and there is no bank left to hold
+; writable code - never mind the addressing ceilings above.
 KERNBANK = 5
 VBANK    = 6
 KVBANK   = 4
 VBASE    = $6000
 KTBASE   = $6000
+KTBYTES  = NDMODEL * 64     ; the key cache is a fixed 4 KB whatever NCTX is
+VBYTES   = NCTX * 256
+    .assert VBYTES <= $2000, error, "value cache does not fit one PRG-RAM bank"
+
+; "ELYA" magic + count + NTOKGEN token ids, parked in the tail of the KEY
+; bank (bank 4, which the 4 KB key cache leaves half empty) so an emulator
+; with no scripting hook can be cross-checked through its .sav file.
+SAVBASE = $8000 - (5 + NTOKGEN)
+    .assert SAVBASE >= KTBASE + KTBYTES, error, "sav block overlaps the key cache"
 
 .zeropage
 wchain:  .res 2
@@ -193,13 +263,19 @@ avnt:    .res 1              ; curpos + 1
 ucur:    .res 1              ; chain unit cursor, filled from the top down
 
 .segment "BSS"
-res_tokens: .res 32
+res_tokens: .res 96
 res_ntok:   .res 1
+P4HI:       .res NCTX       ; quantised softmax output, one nibble per position
+    .assert NTOKGEN <= 96, error, "res_tokens too small for NTOKGEN"
+    .assert (P4HI & $FF) + NCTX - 1 < 256, error, "P4HI,y would cross a page"
 
 ; ===========================================================================
 .segment "HEADER"
     .byte "NES", $1A
-    .byte (NSTREAM + 3 + 1) / 2   ; 16 KB units: NSTREAM + emb + tbl + code
+    .byte (NSTREAM + 5) / 2 ; 16 KB units: NSTREAM + emb + pos + tbl + spare
+                            ; + code.  The spare bank exists only so that the
+                            ; bank count stays even and the image is a whole
+                            ; number of 16 KB iNES units.
     .byte 1
     .byte $52               ; mapper 5, battery
     .byte $00
@@ -229,7 +305,12 @@ res_ntok:   .res 1
 
 .segment "EMBED"
     .incbin "out/model/embed.bin"
-    .incbin "out/model/pos.bin"
+.if POSINEMB
+    .incbin "out/model/pos.bin"     ; POSTAB = EMBED + NVOCAB*NDMODEL
+.else
+.segment "POS"
+    .incbin "out/model/pos.bin"     ; POSTAB = $A000 in POSBANK
+.endif
 
 .segment "HEADERS"
     .incbin "out/model/headers.bin"
@@ -410,22 +491,27 @@ reset:
     sta $0700,x
     inx
     bne @clr
-    ; clear the transposed key cache ($6000..$6FFF, RAM bank 4)
+    ; clear the transposed key cache (KTBYTES = 4 KB, RAM bank 4).  Both
+    ; clears cover EVERY byte the cache can occupy.  Clearing less would leave
+    ; the untouched positions reading whatever the PRG-RAM powered up with;
+    ; the emulator zero-fills it, so the bug would be invisible here and only
+    ; appear on hardware, which is exactly the class of thing this repo is
+    ; supposed to refuse to ship.
     ldx #0
 @clrkv:
-    .repeat 16, pg
+    .repeat KTBYTES / 256, pg
     sta KTBASE + pg * 256, x
     .endrepeat
     inx
     bne @clrkv
 
-    ; clear the value cache in RAM bank 6 ($6000..$73FF)
+    ; clear the value cache in RAM bank 6 (VBYTES = NCTX pages)
     lda #VBANK
     sta MMC5_RAMBANK
     lda #0
     ldx #0
 @clrv:
-    .repeat 20, pg
+    .repeat VBYTES / 256, pg
     sta VBASE + pg * 256, x
     .endrepeat
     inx
@@ -502,16 +588,16 @@ reset:
     ldx #0
 @sav:
     lda savmagic,x
-    sta $7FE0,x
+    sta SAVBASE,x
     inx
     cpx #4
     bne @sav
     lda #NTOKGEN
-    sta $7FE4
+    sta SAVBASE + 4
     ldx #0
 @sav2:
     lda res_tokens,x
-    sta $7FE5,x
+    sta SAVBASE + 5,x
     inx
     cpx #NTOKGEN
     bne @sav2
@@ -527,6 +613,14 @@ reset:
 .ifndef DBGPOS
 DBGPOS = 2
 .endif
+; The snapshots park 32-byte slots at $7F80/$7FA0/$7FC0 for the three
+; per-position arrays, so they need NCTX <= 32, and the whole block has to
+; stay clear of both the key cache below it and the sav block above it.
+; Refusing to assemble is the honest outcome; silently overwriting either
+; would produce a ROM that disagrees with the host and blames the wrong thing.
+    .assert NCTX <= 32, error, "DEBUG snapshot slots are 32 bytes per array"
+    .assert $7E00 >= KTBASE + KTBYTES, error, "DEBUG snapshots collide with the key cache"
+    .assert $7FC0 + NCTX <= SAVBASE, error, "DEBUG snapshots collide with the sav block"
 dbg_lo: .byte $00, $40, $80, $C0
 dbg_hi: .byte $7E, $7E, $7E, $7E
 
@@ -558,7 +652,7 @@ dbg_dump_attn:
     lda P4HI,y
     sta $7FC0,y
     iny
-    cpy #20
+    cpy #NCTX
     bne @l2
     ldx xsave
     rts
@@ -882,6 +976,9 @@ forward:
 
 ; --- x = clamp(emb[tok] + pos[p]) ------------------------------------------
 embed_pos:
+.if POSINEMB
+    ; both tables are in the $A000 bank, so both rows are addressable at once
+    ; and no bank write is needed anywhere in here.
     lda curtok
     jsr row64_embed         ; sptr = EMBED + tok*64
     lda sptr
@@ -902,6 +999,41 @@ embed_pos:
     cpy #NDMODEL
     bne @l
     rts
+.else
+    ; the two tables are in different banks of the same $A000 window, so the
+    ; embedding row is copied into XVEC first and the positional row is added
+    ; in place.  Two bank writes per token, 12 cycles, plus the copy.
+    lda #EMBBANK
+    sta MMC5_PRGA000
+    lda curtok
+    jsr row64_embed         ; sptr = EMBED + tok*64
+    ldy #0
+@c:
+    lda (sptr),y
+    sta XVEC,y
+    iny
+    cpy #NDMODEL
+    bne @c
+
+    lda #POSBANK
+    sta MMC5_PRGA000
+    lda curpos
+    jsr row64_pos           ; sptr = POSTAB + pos*64
+    ldy #0
+@l:
+    lda XVEC,y
+    clc
+    adc (sptr),y
+    tax
+    lda tbl_clamp,x
+    sta XVEC,y
+    iny
+    cpy #NDMODEL
+    bne @l
+    lda #EMBBANK
+    sta MMC5_PRGA000
+    rts
+.endif
 
 row64_embed:
     pha
