@@ -940,3 +940,30 @@ define and the `NSTREAM` define are all provably neutral.
 
 The committed `out/nn.nes` is the **trained** cartridge
 (`runs/final_av2_bpe64_tau0.75.npz`, seed token 1), not the random-init one.
+
+---
+
+# Attention kernel optimisation (session: attention)
+
+## Baseline, reproduced from the committed cartridge
+
+`train/build_trained.sh runs/final_av2_bpe64_tau0.75.npz 1` rebuilds
+`out/nn.nes` **byte-identically** to the committed cartridge (git reports the
+working tree clean after the build), so everything below is measured against
+the shipped ROM, not a lookalike.
+
+| measurement | value |
+| --- | --- |
+| tokens | 19/19 exact vs host |
+| mean cycles/token | **1,233,099** |
+| pos 0 | 1,103,687 |
+| pos 18 (full context) | **1,366,939** |
+| profiled pos-18 attention | **302,624 cycles, 21.6%** |
+| profiled pos-0 attention | 39,812 cycles, 3.5% |
+| ternary gather in situ | 16.30 cycles/MAC, 8.31 cycles/weight (nnz 52,207) |
+
+The brief's 1,233,099 / 302,444 / 21.8% / 16.34 / 8.19 figures come from
+`out/nn_profile.txt`, which was taken at nnz 51,299 — a different training run.
+The cycles/token figure agrees to the digit; the attention figure differs by
+0.06%. All deltas below are against **302,624 / 1,366,939 / 1,233,099**, the
+numbers this session measured on the ROM it is actually editing.
