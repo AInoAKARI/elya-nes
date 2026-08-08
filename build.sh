@@ -32,9 +32,15 @@ build mmc3    rom/mmc3.s  rom/mmc3.cfg
 build nn      rom/nn.s    rom/nn.cfg $NCTXDEF
 build nnprof  rom/nn.s    rom/nn.cfg $NCTXDEF -DPROFILE
 build nnbench rom/nn.s    rom/nn.cfg $NCTXDEF -DBENCH
-build nndbg   rom/nn.s    rom/nn.cfg $NCTXDEF -DDEBUG -DDBGPOS=0
-build nnattn  rom/nn.s    rom/nn.cfg $NCTXDEF -DATTNPROF   # attention breakdown
-build nnabench rom/nn.s   rom/nn.cfg $NCTXDEF -DATTNBENCH  # attention kernel slope
-build ramexec rom/nn.s    rom/nn.cfg $NCTXDEF -DRAMEXEC    # MMC5 PRG-RAM probe
+# The DEBUG snapshots and the three attention instruments only exist while the
+# attention kernels do, i.e. NCTX <= 64/L = 21.  Above that the ROM is on the
+# legacy attention path and these targets have nothing to measure; nn.s
+# refuses to assemble them rather than emit something that looks right.
+if [ "$NES_T" -le 21 ]; then
+    build nndbg   rom/nn.s    rom/nn.cfg $NCTXDEF -DDEBUG -DDBGPOS=0
+    build nnattn  rom/nn.s    rom/nn.cfg $NCTXDEF -DATTNPROF   # attention breakdown
+    build nnabench rom/nn.s   rom/nn.cfg $NCTXDEF -DATTNBENCH  # attention kernel slope
+    build ramexec rom/nn.s    rom/nn.cfg $NCTXDEF -DRAMEXEC    # MMC5 PRG-RAM probe
+fi
 
 ls -l out/*.nes
