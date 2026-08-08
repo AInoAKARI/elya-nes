@@ -382,6 +382,10 @@ contradiction of it.
   structural wall as the discarded 4-bit-weight LUT: building the multiply
   table index needs `ORA`, there is no `ORA` to X or Y, so the accumulator
   cannot stay in A. At full context it is 21.8% of a token.
+  *(Superseded - see "Attention kernel optimisation" at the end of this file.
+  The wall is real but it is avoidable: only ONE of attention's two kernels
+  has two varying operands, and neither of them does once the loops are
+  transposed. Attention is now 7.3% of a token at full context.)*
 - **Two of my own bugs produced plausible output**: the Duff's-device entry bug
   gave the right token at positions 0 and 1 while layer 0 was already wrong at
   position 0, and the bank-boundary bug hung rather than mis-answered. Neither
