@@ -27,8 +27,24 @@ NLAYER   = 3
 NHEAD    = 2
 NDHEAD   = 32
 NFF      = 128
+
+; ---- context length -------------------------------------------------------
+; NCTX is the only shape knob that varies, and host/ref.py must be given the
+; SAME value through NES_T.  The bound is the KV cache: L * NCTX * 2 rows of
+; NDMODEL bytes, one byte per 4-bit activation, in the 32 KB of PRG-RAM the
+; MMC5 windows at $6000 in four 8 KB banks.
+.ifndef NCTX
 NCTX     = 20
-NTOKGEN  = 19               ; >= 16, the verification bar
+.endif
+NTOKGEN  = NCTX - 1         ; >= 16, the verification bar
+
+KVROWS   = NLAYER * 2 * NCTX        ; 64-byte rows: [layer][k|v][t]
+KVBYTES  = KVROWS * NDMODEL
+KVBANKS  = (KVBYTES + 8191) / 8192
+KVBANK0  = 4                ; $5113 = 4,5,6,7 are the four real PRG-RAM banks
+KVLAST   = (KVBYTES - 1) / 8192
+    .assert KVBYTES <= 32768, error, "KV cache exceeds the 32 KB of PRG-RAM"
+    .assert NTOKGEN >= 16, error, "NTOKGEN below the 16-token verification bar"
 
 ; seed token: the ROM free-runs from a single token, so this is the whole
 ; prompt.  Overridable from the build (-DSEEDTOK=nn) so the same weights can
@@ -44,9 +60,16 @@ SEEDTOK  = 1
 .ifndef NSTREAM
 NSTREAM  = 7
 .endif
-EMBBANK  = $80 + NSTREAM          ; $A000 window: embedding + positions
-TBLBANK  = $80 + NSTREAM + 1      ; $C000 window: row headers + tables
-CODEBANK = $80 + NSTREAM + 2      ; $E000 window: code, chains, vectors
+; The embedding is NVOCAB*NDMODEL = 4,096 bytes and the positional table is
+; NCTX*NDMODEL, which at NCTX = 85 is 5,440 - together 9,536 bytes, more than
+; the 8 KB $A000 window holds.  So they get a bank each and `embed_pos`
+; switches between them once per token (6 cycles, MMC5).  The spare bank keeps
+; the PRG image a whole number of 16 KB iNES units.
+EMBBANK  = $80 + NSTREAM          ; $A000 window: embedding
+POSBANK  = $80 + NSTREAM + 1      ; $A000 window: positional table
+TBLBANK  = $80 + NSTREAM + 2      ; $C000 window: row headers + tables
+CODEBANK = $80 + NSTREAM + 4      ; $E000 window: code, chains, vectors
+                                  ; ($80 + NSTREAM + 3 is the spare bank)
 
 BIASV    = 7
 BLOCKSZ  = 16
@@ -82,23 +105,37 @@ MMC5_PRGE000 = $5117
 PMARK_COST = 12
 
 ; ---- fixed pages in system RAM (constants, NOT bss - see nn.cfg) ----------
+; The four per-position arrays (SCORL, SCORH, EXPE, P4HI) are NCTX entries
+; each, so at NCTX = 85 they need 340 bytes where the T = 20 map spent 128.
+; Three of them fit page 7 alongside nothing else; P4HI goes in BSS, where the
+; linker's $0200-$02FF cap turns an overflow into a LINK ERROR rather than a
+; silent collision with the marker port.  Every base below is chosen so that
+; base_lo + max_index <= 255, i.e. NO indexed access here crosses a page.
 ACTB   = $0400              ; biased activation input page (the adc target)
 OUTB   = $0500              ; signed matmul output, up to 128 entries
-XVEC   = $0600              ; residual stream x[0..63], signed
-Q4HI   = $0640              ; (q & 15) << 4
-ATTV   = $0680              ; attention output, signed
-ACC8   = $06C0              ; 8-bit block accumulators for AV
+XVEC   = $0580              ; residual stream x[0..63], signed
+Q4HI   = $05C0              ; (q & 15) << 4
+ATTV   = $0600              ; attention output, signed
+ACC8   = $0640              ; 8-bit block accumulators for AV
+AVL    = $0680
+AVH    = $06C0
 SCORL  = $0700
-SCORH  = $0720
-EXPE   = $0740
-P4HI   = $0760
-AVL    = $0780
-AVH    = $07C0
+SCORH  = SCORL + NCTX
+EXPE   = SCORH + NCTX
+    .assert EXPE + NCTX <= $0800, error, "score arrays overflow page 7"
+    .assert <SCORH + NCTX - 1 < 256, error, "SCORH,y would cross a page"
+    .assert <EXPE + NCTX - 1 < 256, error, "EXPE,y would cross a page"
 
-EMBED   = $A000
-POSTAB  = $A000 + NVOCAB * NDMODEL
+EMBED   = $A000             ; EMBBANK
+POSTAB  = $A000             ; POSBANK - its own bank, see above
 HEADERS = $C000
 KVBASE  = $6000
+; "ELYA" magic + count + NTOKGEN token ids, parked in the tail of the last KV
+; bank so an emulator with no scripting hook can be cross-checked through its
+; .sav file.  At NCTX = 85 the cache leaves only 128 bytes there.
+SAVBASE = $8000 - (5 + NTOKGEN)
+KVLASTEND = $6000 + (KVBYTES - KVLAST * 8192)
+    .assert SAVBASE >= KVLASTEND, error, "sav block overlaps the KV cache"
 
 .zeropage
 wchain:  .res 2
@@ -143,15 +180,24 @@ bestH:   .res 1
 besti:   .res 1
 t0:      .res 1
 t1:      .res 1
+rowL:    .res 1             ; KV row index, 16 bit: row = (l*2+kv)*NCTX + t
+rowH:    .res 1
+bnkc:    .res 1             ; PRG-RAM bank counter, reset only
 
 .segment "BSS"
-res_tokens: .res 32
+res_tokens: .res 96
 res_ntok:   .res 1
+P4HI:       .res NCTX       ; quantised softmax output, one nibble per position
+    .assert NTOKGEN <= 96, error, "res_tokens too small for NTOKGEN"
+    .assert (P4HI & $FF) + NCTX - 1 < 256, error, "P4HI,y would cross a page"
 
 ; ===========================================================================
 .segment "HEADER"
     .byte "NES", $1A
-    .byte (NSTREAM + 3 + 1) / 2   ; 16 KB units: NSTREAM + emb + tbl + code
+    .byte (NSTREAM + 5) / 2 ; 16 KB units: NSTREAM + emb + pos + tbl + spare
+                            ; + code.  The spare bank exists only so that the
+                            ; bank count stays even and the image is a whole
+                            ; number of 16 KB iNES units.
     .byte 1
     .byte $52               ; mapper 5, battery
     .byte $00
@@ -181,6 +227,8 @@ res_ntok:   .res 1
 
 .segment "EMBED"
     .incbin "out/model/embed.bin"
+
+.segment "POS"
     .incbin "out/model/pos.bin"
 
 .segment "HEADERS"
@@ -254,7 +302,7 @@ reset:
     sta MMC5_RAMPRO1
     lda #$01
     sta MMC5_RAMPRO2
-    lda #$04                ; PRG-RAM bank 4 (first of the four real banks)
+    lda #KVBANK0            ; PRG-RAM bank 4 (first of the four real banks)
     sta MMC5_RAMBANK
     lda #$80
     sta MMC5_PRG8000
@@ -276,31 +324,40 @@ reset:
     sta $0700,x
     inx
     bne @clr
-    ; clear the KV cache
-    ldx #0
-@clrkv:
-    sta $6000,x
-    sta $6100,x
-    sta $6200,x
-    sta $6300,x
-    sta $6400,x
-    sta $6500,x
-    sta $6600,x
-    sta $6700,x
-    sta $6800,x
-    sta $6900,x
-    sta $6A00,x
-    sta $6B00,x
-    sta $6C00,x
-    sta $6D00,x
-    sta $6E00,x
-    sta $6F00,x
-    sta $7000,x
-    sta $7100,x
-    sta $7200,x
-    sta $7300,x
-    inx
-    bne @clrkv
+    ; clear the KV cache: every byte of every bank it occupies.  At NCTX = 20
+    ; that is one bank; at NCTX = 85 it is four.  Clearing only the first would
+    ; leave positions 43..84 reading whatever the PRG-RAM powered up with, and
+    ; the emulator zero-fills it, so the bug would be invisible here and only
+    ; appear on hardware - which is precisely the kind of thing this repo is
+    ; supposed to refuse to ship.
+    lda #0
+    sta bnkc
+@clrbank:
+    lda bnkc
+    clc
+    adc #KVBANK0
+    sta MMC5_RAMBANK
+    lda #<KVBASE
+    sta kptr
+    lda #>KVBASE
+    sta kptr+1
+    ldx #32                 ; 32 pages of 256 bytes = one 8 KB bank
+    lda #0
+@clrpage:
+    ldy #0
+@clrb:
+    sta (kptr),y
+    iny
+    bne @clrb
+    inc kptr+1
+    dex
+    bne @clrpage
+    inc bnkc
+    lda bnkc
+    cmp #KVBANKS
+    bcc @clrbank
+    lda #KVBANK0
+    sta MMC5_RAMBANK
 
     lda #SEEDTOK
     sta curtok
@@ -329,19 +386,21 @@ reset:
     sta res_ntok
     ; also park the result in battery-backed PRG-RAM, so an emulator with no
     ; scripting hook (ares) can be cross-checked through its .sav file
+    lda #KVBANK0 + KVLAST   ; the sav block lives in the LAST KV bank
+    sta MMC5_RAMBANK
     ldx #0
 @sav:
     lda savmagic,x
-    sta $7FE0,x
+    sta SAVBASE,x
     inx
     cpx #4
     bne @sav
     lda #NTOKGEN
-    sta $7FE4
+    sta SAVBASE + 4
     ldx #0
 @sav2:
     lda res_tokens,x
-    sta $7FE5,x
+    sta SAVBASE + 5,x
     inx
     cpx #NTOKGEN
     bne @sav2
@@ -356,6 +415,14 @@ reset:
 ; --- layers 0..2.  Compared against host/ref.py's per-position trace.
 .ifndef DBGPOS
 DBGPOS = 2
+.endif
+; The debug snapshots park 188 bytes at $7E00-$7FCF, which is free only while
+; the KV cache leaves that much of the last bank unused.  At NCTX = 85 it
+; leaves 128 bytes.  Refusing to assemble is the honest outcome; silently
+; overwriting the KV cache would produce a ROM that disagrees with the host
+; and blames the wrong thing.
+.if KVBYTES > $1E00
+.error "DEBUG snapshots collide with the KV cache at this NCTX"
 .endif
 dbg_lo: .byte $00, $40, $80, $C0
 dbg_hi: .byte $7E, $7E, $7E, $7E
@@ -388,7 +455,7 @@ dbg_dump_attn:
     lda P4HI,y
     sta $7FC0,y
     iny
-    cpy #20
+    cpy #NCTX
     bne @l2
     ldx xsave
     rts
@@ -499,18 +566,31 @@ forward:
     rts
 
 ; --- x = clamp(emb[tok] + pos[p]) ------------------------------------------
+; The embedding and the positional table are in different banks of the same
+; $A000 window (together they are 9,536 bytes at NCTX = 85), so this reads the
+; embedding row into XVEC first, then switches the window and adds the
+; positional row in place.  Two bank writes per token, 12 cycles, against
+; ~1.3 million.
 embed_pos:
+    lda #EMBBANK
+    sta MMC5_PRGA000
     lda curtok
     jsr row64_embed         ; sptr = EMBED + tok*64
-    lda sptr
-    sta kptr
-    lda sptr+1
-    sta kptr+1
+    ldy #0
+@c:
+    lda (sptr),y
+    sta XVEC,y
+    iny
+    cpy #NDMODEL
+    bne @c
+
+    lda #POSBANK
+    sta MMC5_PRGA000
     lda curpos
     jsr row64_pos           ; sptr = POSTAB + pos*64
     ldy #0
 @l:
-    lda (kptr),y
+    lda XVEC,y
     clc
     adc (sptr),y
     tax
@@ -555,8 +635,19 @@ savmagic:
 mul64lo:
     .byte 0, 64, 128, 192
 
-lay40:
-    .byte 0, NCTX * 2, NCTX * 4
+; KV layout is [layer][k|v][t]: row = (curlay*2 + kvsel) * NCTX + kvt.  The
+; per-(layer, k/v) blocks are then CONTIGUOUS in t, so the attention loops walk
+; rows in order and cross a PRG-RAM bank boundary at most once per loop instead
+; of ping-ponging.  Row 0 of each block is tabulated because (l*2+kv)*NCTX
+; exceeds a byte at NCTX = 85 (max 5*85 = 425).
+kvbaseL:
+    .repeat NLAYER * 2, i
+    .byte <(i * NCTX)
+    .endrepeat
+kvbaseH:
+    .repeat NLAYER * 2, i
+    .byte >(i * NCTX)
+    .endrepeat
 
 ; ===========================================================================
 ; one transformer layer
@@ -942,20 +1033,41 @@ post_kv:
     ldx xsave
     rts
 
-; kptr = KVBASE + (lay40[curlay] + kvt*2 + kvsel) * 64      (clobbers A/Y)
+; row  = (curlay*2 + kvsel) * NCTX + kvt          (0 .. NLAYER*2*NCTX - 1)
+; bank = row >> 7,   kptr = KVBASE + (row & 127) * 64        (clobbers A/X/Y)
+;
+; 8 KB / 64 = 128 rows per bank exactly, so a row NEVER straddles a bank and,
+; being 64-byte aligned, (kptr),y with y < 64 never crosses a page either -
+; the same alignment argument the one-bank version relied on, unchanged.
+; X is free here: every caller (post_kv, attn_head) has already parked the
+; weight-stream offset in xsave.
 kv_ptr:
-    ldy curlay
-    lda lay40,y
+    lda curlay
+    asl a
+    clc
+    adc kvsel
+    tay
+    lda kvbaseL,y
     clc
     adc kvt
-    adc kvt
-    adc kvsel
-    pha
+    sta rowL
+    lda kvbaseH,y
+    adc #0
+    sta rowH
+    lda rowL
+    asl a                   ; C = bit 7 of the row index
+    lda rowH
+    rol a                   ; A = row >> 7
+    clc
+    adc #KVBANK0
+    sta MMC5_RAMBANK
+    lda rowL
     and #$03
     tay
     lda mul64lo,y
     sta kptr
-    pla
+    lda rowL
+    and #$7F
     lsr a
     lsr a
     clc

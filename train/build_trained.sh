@@ -11,8 +11,10 @@ SEED=${2:-1}
 [ -n "$NPZ" ] || { echo "usage: build_trained.sh <npz> [seed_tok]"; exit 2; }
 
 mkdir -p out out/model
+NES_T=${NES_T:-20}
+export NES_T
 NES_WEIGHTS="$NPZ" NES_SEED_TOK="$SEED" \
-    python3 host/ref.py out/model 19 | tee out/model/pack_report.txt
+    python3 host/ref.py out/model | tee out/model/pack_report.txt
 
 echo
 python3 train/verify_pack.py "$NPZ" --dir out/model | tail -6
@@ -24,6 +26,7 @@ build() {
     ld65 -C "$cfg" -o "out/$name.nes" -Ln "out/$name.lbl" "out/$name.o" 2>&1 \
         | grep -v "Segment 'CHARS' does not exist" || true
 }
-build nn      rom/nn.s rom/nn.cfg -DSEEDTOK=$SEED
-build nnprof  rom/nn.s rom/nn.cfg -DSEEDTOK=$SEED -DPROFILE
+CFG=${NES_CFG:-rom/nn.cfg}
+build nn      rom/nn.s $CFG -DNCTX=$NES_T -DSEEDTOK=$SEED
+build nnprof  rom/nn.s $CFG -DNCTX=$NES_T -DSEEDTOK=$SEED -DPROFILE
 ls -l out/nn.nes out/nnprof.nes

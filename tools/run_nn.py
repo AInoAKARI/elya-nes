@@ -18,9 +18,11 @@ def main():
                         else "out/model/expected.json"))
     secs = int(sys.argv[3]) if len(sys.argv) > 3 else 120
 
-    dumps = [("tokens", 0x0200, 32), ("ntok", 0x0220, 1),
-             ("xvec", 0x0600, 64), ("outb", 0x0500, 128),
-             ("actb", 0x0400, 128), ("attv", 0x0680, 64)]
+    # res_tokens is 96 bytes at the base of BSS whatever NCTX is; the scratch
+    # pages moved when the per-position arrays grew for the longer context.
+    dumps = [("tokens", 0x0200, 96),
+             ("xvec", 0x0580, 64), ("outb", 0x0500, 128),
+             ("actb", 0x0400, 128), ("attv", 0x0600, 64)]
     r = run_rom(rom, seconds=secs, dump=dumps, timeout=7200)
     print("status:", r["status"])
     ev = r["events"]
