@@ -29,6 +29,7 @@ def main():
         elif v == 2 and start is not None:
             per.append(cycles(t - start) / float(REP))
             start = None
+    qk = per.pop() if len(per) > 20 else None
     print("AV kernel, isolated   (call frame + %d-cycle driver included)" % DRIVER)
     print("  %-4s %10s %10s %10s" % ("MACs", "cyc/call", "kernel", "cyc/MAC"))
     prev = None
@@ -52,6 +53,11 @@ def main():
         print("    endpoint slope   %.4f cycles/MAC   intercept %.2f" % (slope, icept))
         print("    fitted   slope   %.4f cycles/MAC   intercept %.2f"
               % (s2, my - s2 * mx - DRIVER))
+    if qk is not None:
+        k = qk - 10          # ldy/dec/bne driver
+        print("\nQK kernel, isolated (fixed 32 MACs)")
+        print("  %10.2f cyc/call incl driver   %10.2f kernel   %8.3f cyc/MAC"
+              % (qk, k, k / 32.0))
     return 0
 
 

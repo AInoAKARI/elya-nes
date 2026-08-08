@@ -1096,3 +1096,52 @@ way past. Positions 0 and 1 still came out right. Position 2 did not. That
 is the third time in this project that a change has produced the correct
 token at position 0 and 1 while being wrong; a 3-token check would have
 shipped it.
+
+## Stage B: QK at 8-cycle units, on a key cache turned inside out
+
+QK is the mirror image of AV:
+
+    score_t = sum_d mul[(q_d << 4) | k_t[d]]
+
+Here it is `q_d` that is constant along the summation axis, so the same trick
+applies with the roles of the two axes swapped: **d is the unrolled/patched
+axis and t is the register axis.** Which means the key cache has to be
+TRANSPOSED, because the address must now be linear in t:
+
+    KT[d][l][t] = $6000 + d*64 + (l*20 + t)        (RAM bank 4)
+    V [t][l][d] = $6000 + t*256 + (l*64 + d)       (RAM bank 6)
+
+K and V want opposite layouts. That is the real reason attention was worse
+per operation than the gather beside it: **one cache cannot serve both
+kernels**, and the old code made both of them pay for the compromise. Two
+PRG-RAM banks, one layout each, and both kernels get a page-cross-free
+`abs,y` load.
+
+The patching is free of extra passes. `post_q` already walked the 64 query
+nibbles; it now writes each one straight into its chain unit's operand as
+well (`tbl_mul` is page aligned, so the operand's low byte *is* `q<<4`).
+Unrolled, that costs 22 cycles an element against the 26 the old loop cost -
+the patch is cheaper than the loop it replaced. Same for the key scatter:
+unrolled `sta KTBASE+d*64,x` is 11 cycles an element against the 19 the old
+`sta (kptr),y` pointer walk cost, and it writes the transposed layout for
+free.
+
+### Measured
+
+| | before | after |
+| --- | ---: | ---: |
+| QK kernel, isolated (32 MACs) | 908.5 cyc = 28.39 cyc/MAC | **357.1 cyc = 11.16 cyc/MAC** |
+| QK kernel, in situ (pos 18) | 103,568 cyc | **41,438 cyc** |
+| score-loop other (`kv_ptr` etc.) | 12,054 cyc | **4,536 cyc** |
+| attention (PROFILE, pos 18) | 302,624 (21.6%) | **136,954 (11.1%)** |
+| cycles/token, mean | 1,233,099 | **1,145,564** |
+
+The 11.16 is the whole call: 32 units at exactly 8.00 = 256, four 16-bit
+carry folds, the prologue/epilogue, and 17 cycles of `jsr` + `jmp (qkp)` +
+`rts`. The 8.00 per unit is the same figure the AV sweep measured
+element by element.
+
+**57/57 tokens exact** at seed tokens 1, 26, 40. The random-init `./build.sh`
+cartridge also verifies 19/19 exact, so the change is not specific to the
+trained weights' sparsity. All seven build variants (default, PROFILE, BENCH,
+DEBUG, ATTNPROF, ATTNBENCH, RAMEXEC) assemble and link.

@@ -720,6 +720,25 @@ attn_bench:
     lda di
     cmp #NCTX
     bcc @l
+
+    ; QK does a fixed NDHEAD MACs, so there is no slope to fit - only the
+    ; per-call cost.  Driver here is 10 cycles (ldy/dec/bne).
+    lda #KVBANK
+    sta MMC5_RAMBANK
+    lda #<qkchain0
+    sta qkp
+    lda #>qkchain0
+    sta qkp+1
+    lda #BENCH_REP
+    sta cnt
+    MARKX M_BEGIN
+@q:
+    ldy #0                  ; 2
+    jsr qk_call             ; 6 + chain + rts
+    dec cnt                 ; 5
+    bne @q                  ; 3
+    MARKX M_END
+
     ldx #M_DONE
     stx MARKER
 @bh: jmp @bh
