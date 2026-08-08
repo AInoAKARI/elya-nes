@@ -1188,3 +1188,19 @@ From position 10 onward the curve is **flat to within 0.7%**, and positions
 positions 10-19. That is noise. The 3.95% figure for "positions 20+ versus
 positions 0-19" is entirely the first five positions, which have almost no
 context by definition and would be hard for any model.
+
+### A dilution effect that makes the negative result stronger, not weaker
+
+The training and eval batches are random windows of length `T` and the loss is
+the mean over all `T` positions. Position 0 has no context and is expensive;
+position 80 has plenty. So a **longer window mechanically flattens the average
+downwards** - at `T = 10` the four hardest positions are 40% of the reported
+loss, at `T = 85` they are 5%.
+
+`T = 85` is worse than `T = 20` at matched training *despite* that advantage.
+And the per-position table shows why: the `T = 85` model is worse **at matched
+positions**. Predicting token 15 from tokens 0..14 - a task both models can see
+completely - costs 1.9774 nats/token for the `T = 20` model and 2.2828 for the
+`T = 85` one. The longer model spends capacity on 85 rows of positional table
+and on a wider attention pattern, and it is the same 102,400 ternary weights
+either way.
