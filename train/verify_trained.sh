@@ -1,5 +1,5 @@
 #!/bin/sh
-# Full verification of a trained cartridge: pack, prove max|dW| = 0, assemble,
+# Full verification of a trained cartridge (set NES_T for a non-default context): pack, prove max|dW| = 0, assemble,
 # then run the real ROM in MAME and diff every generated token against the
 # host reference.  Repeated at several seed tokens, because a single starting
 # point is exactly the kind of check that has passed broken code in this
@@ -16,6 +16,6 @@ for S in $SEEDS; do
     echo "# seed token $S"
     echo "############################################################"
     sh train/build_trained.sh "$NPZ" "$S"
-    python3 tools/run_nn.py out/nn.nes out/model/expected.json 60
+    python3 tools/run_nn.py out/nn.nes out/model/expected.json 300
     echo
 done
