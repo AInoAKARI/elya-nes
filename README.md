@@ -14,7 +14,7 @@ seed token '!'      -> '! he was so happy. she was so '
 
 102,400 ternary weights (52,207 nonzero), 4-bit activations, a 64-symbol
 vocabulary, trained on TinyStories with quantisation-aware training so the
-forward pass the trainer sees is the forward pass the 6502 executes. 0.689
+forward pass the trainer sees is the forward pass the 6502 executes. 0.624
 seconds per token on a 1.79 MHz 2A03.
 
 Every number in `FINDINGS.md` is measured. Nothing here is estimated.
@@ -29,9 +29,9 @@ cache spread across all four banks. Retrained on the identical recipe:
 |---|---|---|
 | val nats/char, seed 1 / seed 2 | **1.4133 / 1.4149** | **1.4347 / 1.4318** (worse) |
 | ROM vs host | 1,216/1,216 tokens exact (64 seeds) | **252/252 tokens exact** (3 seeds) |
-| mean cycles/token | 1,116,979 | **1,698,272** (+52%) |
+| mean cycles/token | 1,116,979 | **1,697,916** (+52%) |
 | attention share, last position | 7.3% | **52.9%** |
-| seconds/token, last position | 0.641 | **1.303** |
+| seconds/token, last position | 0.641 | **1.283** |
 
 (`T = 20` runs the attention kernels; `T = 85` is past their addressing
 ceiling and runs the legacy attention path, which is why the cycle gap is
@@ -94,8 +94,8 @@ ROM that runs perfectly and says the wrong thing.
 | attention at full context (T = 20) | **86,142 cycles, 7.3%** of a token (was 302,624, 21.6%) |
 | attention kernels | **8.00 cycles/MAC** measured, self-modified operands in PRG-RAM |
 | wall clock at 1,789,772 Hz | **0.6241 s/token** at T = 20 |
-| cycles per token (T = 85, legacy attention) | 1,104,175 (pos 0) .. 2,360,222 (pos 83), mean **1,729,505** |
-| attention share at full context (T = 85) | **54.1%**, on the legacy kernels - see below |
+| cycles per token (T = 85, legacy attention) | 1,103,387 (pos 0) .. 2,295,963 (pos 83), mean **1,697,916** |
+| attention share at full context (T = 85) | **52.9%**, on the legacy attention path - see below |
 | independent emulator | ares 147 gives the **identical** 19 tokens (random-init build) |
 
 ## Layout
@@ -140,9 +140,12 @@ FINDINGS.md the journal, appended after every discrete result
 | (none) | `nn.nes` | the clean build; this is what the timing numbers come from |
 | `-DPROFILE` | `nnprof.nes` | X-preserving 12-cycle stage markers |
 | `-DBENCH` | `nnbench.nes` | drives the real `gather` over synthetic list lengths |
-| `-DDEBUG -DDBGPOS=n` | `nndbg.nes` | dumps intermediate state at position n (`NCTX <= 20` only) |
+| `-DATTNPROF` | `nnattn.nes` | nested markers splitting attention into QK / softmax / AV (`NCTX <= 21`) |
+| `-DATTNBENCH` | `nnabench.nes` | isolated slope of the attention kernels, self-modified vs pointer (`NCTX <= 21`) |
+| `-DRAMEXEC` | `ramexec.nes` | probes whether MMC5 PRG-RAM at `$8000` is writable and executable (`NCTX <= 21`) |
+| `-DDEBUG -DDBGPOS=n` | `nndbg.nes` | dumps intermediate state at position n (`NCTX <= 21` only) |
 | `-DSEEDTOK=n` | | the seed token the ROM free-runs from (default 1) |
-| `-DNCTX=n` | | context length; **must match `NES_T`** for `host/ref.py`. 85 is the ceiling (`32768 / (L*2*D)`) |
+| `-DNCTX=n` | | context length; **must match `NES_T`** for `host/ref.py`. **21** is the ceiling for the attention kernels (`64 / L`, the key cache row); above it the ROM builds on the legacy attention path, up to **85** (`32768 / (L*2*D)`) |
 | `-DNSTREAM=9` + `rom/nn9.cfg` | | 9 weight-stream banks for a model denser than 0.559 |
 
 `NES_T` is passed to `build.sh` / `train/build_trained.sh` and reaches the
