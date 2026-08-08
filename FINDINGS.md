@@ -1527,3 +1527,45 @@ mixture-of-experts across the 32 spare PRG banks - not a longer window. And if
 context were revisited, the softmax resolution would have to be fixed first:
 a `sum <= 8` integer softmax over 85 positions is the constraint that makes the
 long-range head the model *did* learn unable to pay for itself.
+
+## What could not be done, and what is thinner than it looks
+
+* **The headline 60,000-step pair is one seed each.** The `T = 20` vs `T = 85`
+  aggregate gap is 0.0211 nats/char against a measured seed noise of 0.009 -
+  **2.3x**, which is a real margin but not a comfortable one. The supporting
+  evidence is much stronger than the headline: the matched-position gap at
+  positions 10-19 is 0.070 nats/char (7.8x seed noise) and the 12,000-step
+  sweep gap is 0.048 (5.4x). A seed-2 replicate of both 60,000-step arms is
+  running as this is written and its result is recorded below.
+* **`AV_SHIFT`, `K_SHIFT` and `W2_SHIFT` were not re-laddered at `T = 85`.**
+  `AV_SHIFT = 2` was the measured optimum at `T = 20` and the accumulator bound
+  that motivated it (`sum_t p_t <= 8`, values in `-7..7`, so `|acc| <= 14`) is
+  independent of `T`, so it should carry - but "should" is not "measured", and
+  the one time this repo assumed a shift it produced fluent-looking rubbish
+  with nothing raising. `K_SHIFT = 2` saturating 31.67% of the time was already
+  flagged as worth a ladder at `T = 20` and still has not had one.
+* **The softmax resolution was not changed, only measured.** The `sum <= 8`
+  integer softmax is identified above as the mechanism that stops the
+  long-range head from paying, and nothing was done about it. Widening the
+  probability nibble, or changing the normalisation target, is the obvious
+  follow-up and was out of scope for a context experiment.
+* **`-DDEBUG` does not build at `T = 85`.** The snapshot pages have nowhere to
+  live once the KV cache fills all four PRG-RAM banks, so the build refuses to
+  assemble rather than corrupting the cache. If a `T = 85` ROM ever *did*
+  disagree with the host, the first tool anyone would reach for is missing.
+  Routing the dumps through the marker port would fix it and was not done.
+* **Greedy argmax only, and the 84-token outputs loop.** The repetition in the
+  `T = 85` text is partly greedy decoding over four times as many steps, which
+  the `T = 20` cartridge was never asked to do. The matched-length comparison
+  above is the honest one and it is the one the verdict rests on; the 84-token
+  strings are quoted because they are what the cartridge produces, not because
+  they are a fair quality comparison.
+* **One corpus, one vocabulary, one model shape.** TinyStories, bpe64, and
+  `3 x 64` layers. The conclusion "the ceiling is capacity" is a statement about
+  *this* 102,400-weight model. A larger model might well have a context
+  optimum past 20 - that is the point of calling it a capacity limit.
+* **No sliding window.** The ROM still cannot generate past `NCTX - 1` tokens
+  and there is still no prompt path; the multi-token prompts remain host-only.
+* **The ares cross-check was not repeated.** The `.sav` block moved to the tail
+  of the last KV bank and the offset changed; nothing was run against ares 147
+  at `T = 85`.
