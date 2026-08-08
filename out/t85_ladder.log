@@ -1,3 +1,6 @@
 t85_tau0.75                  step     1  fit 7.4726  val 7.4562  density 0.5493  3s
 t85_tau0.75                  step  4000  fit 2.5565  val 2.5522  density 0.5384  316s
 t85_tau0.75                  step  8000  fit 2.4629  val 2.4657  density 0.5332  629s
+t85_tau0.75                  step 12000  fit 2.2941  val 2.2899  density 0.5346  941s
+FINAL t85_tau0.75              fit 2.2903  val 2.2933  (uniform 4.1589)  nnz 54743/102400 = 0.5346
+t85_tau1.00                  step     1  fit 6.7135  val 6.7128  density 0.4253  3s
