@@ -1635,3 +1635,19 @@ generalised ROM carries a separate positional bank and a spare, so the image is
 96 KB of PRG whatever `T` is. It generates the same 19 tokens and measures
 1,238,160 cycles/token against the shipped 1,233,099 - the +0.41% recorded
 earlier.
+
+## Clean-build regression at the default T
+
+`./build.sh` from scratch with `NES_T` unset, on the generalised ROM:
+
+```
+BRANCH PLACEMENT: OK
+CALIBRATION SCORE: 28/28, 0 mismatches
+  worst deviation of any window from an integer cycle count: 2.602e-11
+$5113 = 4..7 -> 4 distinct 8 KB banks = 32 KB of BANKED PRG-RAM
+random-init nn.nes: TOKENS MATCHING: 19/19 -> EXACT, mean 1,226,055 cycles/token
+```
+
+The instrument, the datasheet calibration and the MMC5 primitive suite are all
+unchanged by this work, and the four PRG-RAM banks the extension depends on are
+re-confirmed from the ROM rather than assumed.
