@@ -983,3 +983,76 @@ TOTAL     23428899 cycles    13.0904 s   (mean 1233099 cycles/token)
 Bit-identical to `out/FINAL_VERIFICATION.txt`. The instrument, the toolchain
 and the corpus in this clone all reproduce the shipped result, so anything
 that changes from here is the change under test and not the environment.
+
+## What had to change in the ROM, and what it cost
+
+`T` is now a build parameter (`-DNCTX`, matching `NES_T` for `host/ref.py`).
+Four things in the port were sized for 20 and had to be re-derived.
+
+**1. The KV cache no longer fits one PRG-RAM bank.** At `T = 85` it is 32,640
+bytes across all four. Rows are still `D = 64` bytes and 64-byte aligned, and
+`8192 / 64 = 128` rows fill a bank exactly, so a row still never straddles a
+bank and `(kptr),y` with `y < 64` still cannot cross a page - the alignment
+argument from the one-bank version carries over unchanged. `kv_ptr` now builds
+a 16-bit row index and writes `$5113`:
+
+```
+row  = (curlay*2 + kvsel) * NCTX + kvt
+bank = row >> 7        ->  $5113 = 4 + bank
+kptr = $6000 + (row & 127) * 64
+```
+
+The layout was changed from `[layer][t][k|v]` to `[layer][k|v][t]` so that the
+score loop and the AV loop walk **contiguous** rows in `t` and cross a bank
+boundary at most once per loop rather than ping-ponging.
+
+**2. The positional table no longer fits the `$A000` window.** Embedding is
+`64*64 = 4,096` bytes and the positional table is `85*64 = 5,440`; together
+9,536 > 8,192. They now get a bank each and `embed_pos` copies the embedding
+row into `XVEC`, switches `$5115`, and adds the positional row in place. Two
+bank writes per token.
+
+**3. The four per-position arrays outgrew their page.** `SCORL`, `SCORH`,
+`EXPE` and `P4HI` are `NCTX` entries each: 128 bytes at `T = 20`, **340** at
+`T = 85`. The system-RAM map was re-laid so that three of them fill page 7 and
+`P4HI` sits in BSS under the linker's `$0200-$02FF` cap. Every base is chosen
+so `base_lo + max_index <= 255`, i.e. no indexed access in the map crosses a
+page - which is a cycle, not a correctness issue, but it is measured cost and
+was avoidable.
+
+**4. Reset must clear four banks, not one,** and the battery-backed result
+block moved into the 128 free bytes the cache leaves in the last bank. The
+`-DDEBUG` snapshots have nowhere to live at `T = 85` and the build now
+**refuses to assemble** rather than quietly overwriting the cache.
+
+### The refactor is neutral at T = 20, and it is not free
+
+Same weights (`runs/final_av2_bpe64_tau0.75.npz`), same seed token, rebuilt
+with the new ROM at `NES_T=20`:
+
+```
+max|dW| = 0   over 102400 ternary weights -> EXACT
+TOKENS MATCHING: 19/19  -> EXACT
+TOTAL     23525053 cycles   13.1442 s   (mean 1238160 cycles/token)
+```
+
+against the pre-refactor `1,233,099`. **+5,061 cycles per token, +0.41%** -
+the `$5113` write inside `kv_ptr` (240 calls per token at `T = 20`) plus the
+extra 64-byte embedding copy. Recorded rather than rounded away: the
+generalised ROM is very slightly slower at the old context, and that is the
+price of the banking.
+
+### T = 85 verified on random weights BEFORE any training
+
+The whole point of having an exact host reference is that the ROM change can
+be proved correct without waiting for a model. Random init at `T = 85`,
+`nnz = 51,219`:
+
+```
+TOKENS MATCHING: 84/84  -> EXACT
+TOTAL   144241504 cycles   80.5921 s   (mean 1717160 cycles/token)
+```
+
+**84 generated tokens, every one bit-identical to `host/ref.py`**, exercising
+all four PRG-RAM banks, both `$A000` banks and the whole 340-byte score map.
+Transcript: `out/T85_RANDOM_VERIFICATION.txt`.
