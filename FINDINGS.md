@@ -1267,3 +1267,42 @@ bytes left and needed 841.
 
 57/57 exact at seed tokens 1, 26, 40, and the random-init `./build.sh`
 cartridge verifies 19/19 exact too (the packer changed, so that one matters).
+
+## Settling the self-modifying-code question with a number
+
+The note this work inherited said a RAM-resident kernel had been considered
+and judged "roughly equal", as an estimate. It is not equal, and the size of
+the gap depends on which kernel you ask.
+
+The brief's own alternative - keep the multiply row in a zero-page POINTER
+instead of in the instruction - is assembled into ROM in the ATTNBENCH build
+(`avptr_chain`) and swept with the identical driver:
+
+```
+    self-modified          zero-page pointer
+    ldx VBASE+t*256, y  4  ldy VBASE+t*256, x  4
+    adc tbl_mul+p<<4, x 4  adc (mulp), y       5
+                       ---                   ---
+                         8                     9
+```
+
+Measured, every step of both sweeps:
+
+| form | measured slope | needs writable code |
+| --- | ---: | --- |
+| self-modified operand | **8.00 cycles/MAC** | yes |
+| zero-page pointer | **9.00 cycles/MAC** | no |
+
+So for AV, self-modifying code is worth **exactly one cycle per multiply-add,
+12.5%** - real, but a pointer would have got most of the win without any
+writable code at all.
+
+**For QK it is not a trade-off, it is the only way.** QK's multiply row
+changes with the *unrolled* axis d, so a single pointer cannot serve the 32
+units; it would have to be reloaded inside the loop (~12 cycles) and the
+kernel would be worse than the one it replaced. `(zp,x)` does not help either
+- it dereferences a pointer *table*, and what is needed is an offset into a
+row. Self-modifying code is load-bearing for QK and merely 12.5% for AV.
+
+The ATTNBENCH-only chain does not change the shipping cartridge: rebuilding
+the default target after adding it produces a byte-identical `nn.nes`.

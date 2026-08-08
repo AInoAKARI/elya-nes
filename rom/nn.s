@@ -184,6 +184,7 @@ nbH:     .res 1              ; loop can seed the accumulator instead of
                              ; subtracting afterwards.  NOT sumL/sumH, which
                              ; softmax overwrites between here and the AV pass
 smp:     .res 2              ; the tbl_p row for this softmax's kk
+mulp:    .res 2              ; ATTNBENCH only: the no-SMC multiply-row pointer
 avn:     .res 1              ; number of positions with p != 0
 avnt:    .res 1              ; curpos + 1
 ucur:    .res 1              ; chain unit cursor, filled from the top down
@@ -687,6 +688,44 @@ ramexec_test:
 
 
 .ifdef ATTNBENCH
+; --- the NO-self-modifying-code alternative, for a head-to-head number -----
+; The brief's other idea: keep the multiply row in a zero-page POINTER
+; instead of in the instruction, which needs no writable code at all.
+;   ldy VBASE+t*256, x    ; 4   x = l*64+d, base low byte is 0, no page cross
+;   adc (mulp), y         ; 5   base low byte is p<<4 <= 112, y <= 15, no cross
+; Nine cycles instead of eight.  Assembled into ROM precisely because it does
+; not need to be patched; benched against the real chain below.
+avptr_chain:
+.repeat NCTX, u
+    .ident (.sprintf ("avpu%02d", u)):
+    ldy VBASE + (NCTX - 1 - u) * 256, x
+    adc (mulp), y
+    .if (u = 9) || (u = NCTX - 1)
+    adc totL
+    sta totL
+    bcc *+4
+    inc totH
+    lda #0
+    clc
+    .endif
+.endrepeat
+avpu_none:
+    rts
+
+avpent_lo:
+    .byte <avpu_none
+.repeat NCTX, n
+    .byte <(.ident (.sprintf ("avpu%02d", NCTX - 1 - n)))
+.endrepeat
+avpent_hi:
+    .byte >avpu_none
+.repeat NCTX, n
+    .byte >(.ident (.sprintf ("avpu%02d", NCTX - 1 - n)))
+.endrepeat
+
+avptr_call:
+    jmp (avp)
+
 ; --- isolated slope/intercept for the attention kernels --------------------
 ; Calls the REAL chains (not copies) over t-counts 1..NCTX so the per-MAC
 ; slope and the per-call intercept separate, the way BENCH does for the
@@ -737,6 +776,38 @@ attn_bench:
     lda di
     cmp #NCTX
     bcc @l
+
+    ; the no-SMC pointer form, same sweep, same driver
+    lda #<tbl_mul
+    sta mulp
+    lda #>tbl_mul
+    sta mulp+1
+    lda #0
+    sta di
+@l2:
+    ldy di
+    iny
+    lda avpent_lo,y
+    sta avp
+    lda avpent_hi,y
+    sta avp+1
+    lda #BENCH_REP
+    sta cnt
+    MARKX M_BEGIN
+@r2:
+    lda #0                  ; 2
+    sta totL                ; 3
+    sta totH                ; 3
+    ldx #0                  ; 2
+    clc                     ; 2
+    jsr avptr_call          ; 6 + chain
+    dec cnt                 ; 5
+    bne @r2                 ; 3
+    MARKX M_END
+    inc di
+    lda di
+    cmp #NCTX
+    bcc @l2
 
     ; QK does a fixed NDHEAD MACs, so there is no slope to fit - only the
     ; per-call cost.  Driver here is 10 cycles (ldy/dec/bne).

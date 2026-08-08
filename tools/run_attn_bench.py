@@ -29,7 +29,9 @@ def main():
         elif v == 2 and start is not None:
             per.append(cycles(t - start) / float(REP))
             start = None
-    qk = per.pop() if len(per) > 20 else None
+    qk = per.pop() if len(per) > 40 else None
+    ptr = per[20:40] if len(per) >= 40 else None
+    per = per[:20]
     print("AV kernel, isolated   (call frame + %d-cycle driver included)" % DRIVER)
     print("  %-4s %10s %10s %10s" % ("MACs", "cyc/call", "kernel", "cyc/MAC"))
     prev = None
@@ -53,6 +55,18 @@ def main():
         print("    endpoint slope   %.4f cycles/MAC   intercept %.2f" % (slope, icept))
         print("    fitted   slope   %.4f cycles/MAC   intercept %.2f"
               % (s2, my - s2 * mx - DRIVER))
+    if ptr:
+        print("\nNO-self-modifying-code alternative: `adc (mulp),y` "
+              "with the multiply row in a zero page pointer")
+        print("  %-4s %10s %10s %10s" % ("MACs", "cyc/call", "kernel", "d"))
+        prev = None
+        for i, c in enumerate(ptr):
+            d = "" if prev is None else "%+.2f" % (c - prev)
+            print("  %-4d %10.2f %10.2f %10s" % (i + 1, c, c - DRIVER, d))
+            prev = c
+        sl = (ptr[-1] - ptr[0]) / float(len(ptr) - 1)
+        print("  endpoint slope %.4f cycles/MAC "
+              "(self-modified form: see above)" % sl)
     if qk is not None:
         k = qk - 10          # ldy/dec/bne driver
         print("\nQK kernel, isolated (fixed 32 MACs)")
