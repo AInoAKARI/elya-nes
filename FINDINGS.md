@@ -1306,3 +1306,112 @@ row. Self-modifying code is load-bearing for QK and merely 12.5% for AV.
 
 The ATTNBENCH-only chain does not change the shipping cartridge: rebuilding
 the default target after adding it produces a byte-identical `nn.nes`.
+
+## Attention optimisation: the whole result
+
+All figures measured on the trained cartridge
+(`runs/final_av2_bpe64_tau0.75.npz`, seed token 1) with the same MAME
+instrument, `cycles = round(delta_as * 1789772 / 1e18)`.
+
+### Headline
+
+| | before | after | change |
+| --- | ---: | ---: | ---: |
+| **attention, full context (pos 18)** | **302,624** | **86,142** | **-71.5%** |
+| attention share of a token | **21.6%** | **7.3%** | |
+| cycles/token, mean over 19 | 1,233,099 | **1,116,979** | -9.42% |
+| cycles/token, pos 18 | 1,366,939 | **1,147,754** | -16.03% |
+| cycles/token, pos 0 | 1,103,687 | **1,085,675** | -1.63% |
+| wall clock at 1,789,772 Hz | 0.6890 s | **0.6241 s** | |
+
+### Per kernel
+
+| kernel | isolated, before | isolated, after | in situ, before | in situ, after |
+| --- | ---: | ---: | ---: | ---: |
+| QK (`dot_qk` -> `qkchain`) | 908.5 cyc/call = **28.39** cyc/MAC | 347.1 cyc/call = **10.85** cyc/MAC | 103,568 = 28.39 cyc/MAC | 39,986 = **10.96** cyc/MAC |
+| AV (`acc_av` -> `avchain`) | 860.0 cyc/call = **26.88** cyc/MAC | slope **8.00** cyc/MAC | 98,040 = 26.88 cyc/MAC | 9,444 = **2.59** cyc/MAC |
+
+The AV in-situ figure is below the kernel's own slope because 86.9% of its
+multiply-adds are no longer executed at all (Stage C). The QK figure is the
+honest one for a kernel that always does all 32: **8.00 cycles per unit**
+plus four carry folds, a prologue and a `jsr`/`jmp (ptr)`/`rts` frame.
+
+Against the ternary gather kernel beside it, which was the comparison the
+brief set: gather is **16.30 cycles/MAC in situ**; QK is now **10.96** and AV
+**2.59**. Attention is no longer the worst code in the ROM per operation - it
+is now the best.
+
+### Full attention breakdown, pos 18
+
+| region | before | after |
+| --- | ---: | ---: |
+| QK kernel | 103,568 | 39,986 |
+| score-loop other | 12,054 | 4,536 |
+| softmax | 33,046 | 19,462 |
+| AV kernel | 98,040 | 9,444 |
+| AV other | 56,204 | 12,645 |
+| **accounted** | **303,020** | **86,073** |
+
+### Everything that was tried, including what lost
+
+| # | approach | measured | kept |
+| --- | --- | --- | --- |
+| 1 | AV: transpose the loops so `d` is outer, the multiply row is constant, and it goes in the *instruction* | 26.88 -> **8.00** cyc/MAC | yes |
+| 2 | QK: same, mirrored - unroll `d`, transpose the key cache so the address is linear in `t` | 28.39 -> **10.85** cyc/MAC | yes |
+| 3 | AV: drop positions whose softmax nibble is 0 (they contribute only `MULBIAS`) | 86.9% of units removed; kernel 201.7 -> 46.7 cyc/call | yes |
+| 4 | QK: the same trick on zero *query* nibbles | only **5.4%** of query nibbles are zero; the detection would cost more than the skip | **no** |
+| 5 | the brief's pointer idea: multiply row in a zero-page pointer, `adc (mulp),y`, no writable code | **9.00** cyc/MAC vs 8.00 | **no** (but see below) |
+| 6 | softmax: `(s-max) >> SM_SHIFT` shift loop -> 256-byte table | 113 -> 32 cycles per position | yes |
+| 7 | softmax: per-position `>> kk` loop -> a table row selected once per call | ~82 -> ~36 cycles per position | yes |
+| 8 | seed both accumulators with the negated bias instead of subtracting afterwards | QK 30 -> 14 cyc/call, AV 20 -> 6 cyc/dim | yes |
+| 9 | inline `requant_k4` into the AV dimension loop | 12 cyc/dim | yes |
+| 10 | unrolled key scatter / query patch instead of pointer walks | 19 -> 11 and 26 -> 22 cycles per element | yes |
+
+Row 5 deserves its own note because it is the answer to the question the
+brief asked. Self-modifying code is worth **exactly one cycle per
+multiply-add (12.5%)** for AV, where a pointer would also have worked - the
+earlier "roughly equal" estimate was wrong, but not by much. For QK it is
+**not a trade-off at all**: the multiply row changes with the unrolled axis,
+so no single pointer can serve the 32 units, and the pointer form is simply
+not expressible. Half of this result exists only because the code is
+writable.
+
+### Verification
+
+* **1,216 / 1,216 tokens exact** - 19 tokens at every one of 64 seed tokens
+  (`train/survey_exact.sh`, transcript in `out/ATTN_SURVEY.txt`). The bar was
+  16 tokens at one seed.
+* `max|dW| = 0` on the packed weights at every seed checked.
+* The random-init `./build.sh` cartridge (different sparsity, different
+  weights) also verifies **19/19 exact**, so nothing here is tuned to the
+  trained model's numbers.
+* All eight build variants assemble and link; the `DEBUG` build still dumps a
+  live trace, and the battery-backed result block still reads back
+  `"ELYA"` + 19 tokens identical to the host.
+* The `ATTNBENCH`-only comparison chain is proved not to change the shipping
+  cartridge: rebuilding the default target produces a **byte-identical**
+  `nn.nes`.
+
+### What I could not do, or did not
+
+* **No second emulator.** `ares` is not installed here, so the independent
+  cross-check that the original run did could not be repeated on the new ROM.
+  The `.sav` result block is verified through MAME only.
+* **No `K_SHIFT` ladder.** It never fell in the path of this work and is
+  still unrun; it remains a separate open question.
+* **8.00 cycles/MAC looks like the floor** for this formulation on this CPU:
+  the multiply needs one memory operand fetched into an index register (4)
+  and one table read added to the accumulator (4), and both are already in
+  their cheapest addressing modes with page crossings designed out. Going
+  below it needs fewer multiply-adds, not faster ones - which is exactly what
+  Stage C did for AV and what nothing available does for QK.
+* **The score bias could be dropped entirely.** `MULBIAS * NDHEAD` is the same
+  constant for every `t` and softmax only ever looks at *differences*, so
+  removing it would be exact and would save ~20 cycles a call. It is left in
+  because `SCORL/SCORH` would then no longer match the host reference's
+  recorded `scores`, and that comparison is the DEBUG build's whole purpose.
+  Recorded as available, deliberately declined.
+* **softmax's max-finding loop is untouched** (~900 of its 3,244 cycles).
+* One process note: a per-position figure quoted into README from memory was
+  wrong by 12k cycles and was caught by re-reading the transcript. Every
+  number in this file is copied from a transcript in `out/`.
