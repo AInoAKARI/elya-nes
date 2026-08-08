@@ -1,0 +1,271 @@
+seed token 1 = 'b'
+  pos  rom   rom sym  host  host sym
+  0    0     'a'      0     'a'      ok
+  1    13    'n'      13    'n'      ok
+  2    26    ' '      26    ' '      ok
+  3    22    'w'      22    'w'      ok
+  4    7     'h'      7     'h'      ok
+  5    14    'o'      14    'o'      ok
+  6    26    ' '      26    ' '      ok
+  7    43    'wa'     43    'wa'     ok
+  8    48    's '     48    's '     ok
+  9    1     'b'      1     'b'      ok
+  10   4     'e'      4     'e'      ok
+  11   0     'a'      0     'a'      ok
+  12   20    'u'      20    'u'      ok
+  13   19    't'      19    't'      ok
+  14   8     'i'      8     'i'      ok
+  15   2     'c'      2     'c'      ok
+  16   10    'k'      10    'k'      ok
+  17   53    'ed '    53    'ed '    ok
+  18   0     'a'      0     'a'      ok
+  19   44    'nd '    44    'nd '    ok
+  20   18    's'      18    's'      ok
+  21   0     'a'      0     'a'      ok
+  22   22    'w'      22    'w'      ok
+  23   37    ' a'     37    ' a'     ok
+  24   26    ' '      26    ' '      ok
+  25   1     'b'      1     'b'      ok
+  26   8     'i'      8     'i'      ok
+  27   6     'g'      6     'g'      ok
+  28   26    ' '      26    ' '      ok
+  29   5     'f'      5     'f'      ok
+  30   14    'o'      14    'o'      ok
+  31   17    'r'      17    'r'      ok
+  32   26    ' '      26    ' '      ok
+  33   22    'w'      22    'w'      ok
+  34   54    'it'     54    'it'     ok
+  35   7     'h'      7     'h'      ok
+  36   26    ' '      26    ' '      ok
+  37   57    'her'    57    'her'    ok
+  38   26    ' '      26    ' '      ok
+  39   12    'm'      12    'm'      ok
+  40   63    'om'     63    'om'     ok
+  41   12    'm'      12    'm'      ok
+  42   24    'y'      24    'y'      ok
+  43   38    ' s'     38    ' s'     ok
+  44   0     'a'      0     'a'      ok
+  45   8     'i'      8     'i'      ok
+  46   3     'd'      3     'd'      ok
+  47   58    ', '     58    ', '     ok
+  48   29    '"'      29    '"'      ok
+  49   24    'y'      24    'y'      ok
+  50   49    'ou'     49    'ou'     ok
+  51   26    ' '      26    ' '      ok
+  52   2     'c'      2     'c'      ok
+  53   0     'a'      0     'a'      ok
+  54   13    'n'      13    'n'      ok
+  55   26    ' '      26    ' '      ok
+  56   24    'y'      24    'y'      ok
+  57   49    'ou'     49    'ou'     ok
+  58   17    'r'      17    'r'      ok
+  59   26    ' '      26    ' '      ok
+  60   2     'c'      2     'c'      ok
+  61   0     'a'      0     'a'      ok
+  62   13    'n'      13    'n'      ok
+  63   26    ' '      26    ' '      ok
+  64   24    'y'      24    'y'      ok
+  65   49    'ou'     49    'ou'     ok
+  66   17    'r'      17    'r'      ok
+  67   26    ' '      26    ' '      ok
+  68   2     'c'      2     'c'      ok
+  69   0     'a'      0     'a'      ok
+  70   13    'n'      13    'n'      ok
+  71   26    ' '      26    ' '      ok
+  72   24    'y'      24    'y'      ok
+  73   49    'ou'     49    'ou'     ok
+  74   26    ' '      26    ' '      ok
+  75   2     'c'      2     'c'      ok
+  76   0     'a'      0     'a'      ok
+  77   13    'n'      13    'n'      ok
+  78   26    ' '      26    ' '      ok
+  79   24    'y'      24    'y'      ok
+  80   49    'ou'     49    'ou'     ok
+  81   26    ' '      26    ' '      ok
+  82   5     'f'      5     'f'      ok
+  83   14    'o'      14    'o'      ok
+  ROM  text: 'ban who was beauticked and saw a big for with her mommy said, "you can your can your can you can you fo'
+  HOST text: 'ban who was beauticked and saw a big for with her mommy said, "you can your can your can you can you fo'
+  identical: True   over 84 tokens
+
+seed token 26 = ' '
+  pos  rom   rom sym  host  host sym
+  0    22    'w'      22    'w'      ok
+  1    54    'it'     54    'it'     ok
+  2    7     'h'      7     'h'      ok
+  3    26    ' '      26    ' '      ok
+  4    7     'h'      7     'h'      ok
+  5    8     'i'      8     'i'      ok
+  6    48    's '     48    's '     ok
+  7    5     'f'      5     'f'      ok
+  8    11    'l'      11    'l'      ok
+  9    14    'o'      14    'o'      ok
+  10   22    'w'      22    'w'      ok
+  11   52    'er'     52    'er'     ok
+  12   26    ' '      26    ' '      ok
+  13   7     'h'      7     'h'      ok
+  14   8     'i'      8     'i'      ok
+  15   12    'm'      12    'm'      ok
+  16   45    '. '     45    '. '     ok
+  17   36    'he '    36    'he '    ok
+  18   43    'wa'     43    'wa'     ok
+  19   18    's'      18    's'      ok
+  20   38    ' s'     38    ' s'     ok
+  21   14    'o'      14    'o'      ok
+  22   26    ' '      26    ' '      ok
+  23   51    'ha'     51    'ha'     ok
+  24   15    'p'      15    'p'      ok
+  25   24    'y'      24    'y'      ok
+  26   38    ' s'     38    ' s'     ok
+  27   0     'a'      0     'a'      ok
+  28   22    'w'      22    'w'      ok
+  29   37    ' a'     37    ' a'     ok
+  30   26    ' '      26    ' '      ok
+  31   1     'b'      1     'b'      ok
+  32   8     'i'      8     'i'      ok
+  33   6     'g'      6     'g'      ok
+  34   26    ' '      26    ' '      ok
+  35   5     'f'      5     'f'      ok
+  36   14    'o'      14    'o'      ok
+  37   17    'r'      17    'r'      ok
+  38   26    ' '      26    ' '      ok
+  39   5     'f'      5     'f'      ok
+  40   14    'o'      14    'o'      ok
+  41   17    'r'      17    'r'      ok
+  42   26    ' '      26    ' '      ok
+  43   5     'f'      5     'f'      ok
+  44   14    'o'      14    'o'      ok
+  45   17    'r'      17    'r'      ok
+  46   26    ' '      26    ' '      ok
+  47   7     'h'      7     'h'      ok
+  48   8     'i'      8     'i'      ok
+  49   48    's '     48    's '     ok
+  50   12    'm'      12    'm'      ok
+  51   63    'om'     63    'om'     ok
+  52   12    'm'      12    'm'      ok
+  53   24    'y'      24    'y'      ok
+  54   55    ' and '  55    ' and '  ok
+  55   18    's'      18    's'      ok
+  56   0     'a'      0     'a'      ok
+  57   22    'w'      22    'w'      ok
+  58   37    ' a'     37    ' a'     ok
+  59   26    ' '      26    ' '      ok
+  60   1     'b'      1     'b'      ok
+  61   8     'i'      8     'i'      ok
+  62   6     'g'      6     'g'      ok
+  63   26    ' '      26    ' '      ok
+  64   5     'f'      5     'f'      ok
+  65   14    'o'      14    'o'      ok
+  66   17    'r'      17    'r'      ok
+  67   26    ' '      26    ' '      ok
+  68   5     'f'      5     'f'      ok
+  69   14    'o'      14    'o'      ok
+  70   17    'r'      17    'r'      ok
+  71   26    ' '      26    ' '      ok
+  72   7     'h'      7     'h'      ok
+  73   8     'i'      8     'i'      ok
+  74   48    's '     48    's '     ok
+  75   12    'm'      12    'm'      ok
+  76   63    'om'     63    'om'     ok
+  77   12    'm'      12    'm'      ok
+  78   24    'y'      24    'y'      ok
+  79   27    '.'      27    '.'      ok
+  80   38    ' s'     38    ' s'     ok
+  81   36    'he '    36    'he '    ok
+  82   43    'wa'     43    'wa'     ok
+  83   48    's '     48    's '     ok
+  ROM  text: ' with his flower him. he was so hapy saw a big for for for his mommy and saw a big for for his mommy. she was '
+  HOST text: ' with his flower him. he was so hapy saw a big for for for his mommy and saw a big for for his mommy. she was '
+  identical: True   over 84 tokens
+
+seed token 40 = ' the '
+  pos  rom   rom sym  host  host sym
+  0    19    't'      19    't'      ok
+  1    17    'r'      17    'r'      ok
+  2    4     'e'      4     'e'      ok
+  3    4     'e'      4     'e'      ok
+  4    0     'a'      0     'a'      ok
+  5    18    's'      18    's'      ok
+  6    45    '. '     45    '. '     ok
+  7    11    'l'      11    'l'      ok
+  8    8     'i'      8     'i'      ok
+  9    11    'l'      11    'l'      ok
+  10   24    'y'      24    'y'      ok
+  11   55    ' and '  55    ' and '  ok
+  12   18    's'      18    's'      ok
+  13   0     'a'      0     'a'      ok
+  14   22    'w'      22    'w'      ok
+  15   37    ' a'     37    ' a'     ok
+  16   26    ' '      26    ' '      ok
+  17   1     'b'      1     'b'      ok
+  18   8     'i'      8     'i'      ok
+  19   6     'g'      6     'g'      ok
+  20   26    ' '      26    ' '      ok
+  21   5     'f'      5     'f'      ok
+  22   14    'o'      14    'o'      ok
+  23   17    'r'      17    'r'      ok
+  24   26    ' '      26    ' '      ok
+  25   22    'w'      22    'w'      ok
+  26   54    'it'     54    'it'     ok
+  27   7     'h'      7     'h'      ok
+  28   26    ' '      26    ' '      ok
+  29   7     'h'      7     'h'      ok
+  30   8     'i'      8     'i'      ok
+  31   48    's '     48    's '     ok
+  32   12    'm'      12    'm'      ok
+  33   63    'om'     63    'om'     ok
+  34   12    'm'      12    'm'      ok
+  35   24    'y'      24    'y'      ok
+  36   55    ' and '  55    ' and '  ok
+  37   18    's'      18    's'      ok
+  38   0     'a'      0     'a'      ok
+  39   8     'i'      8     'i'      ok
+  40   3     'd'      3     'd'      ok
+  41   58    ', '     58    ', '     ok
+  42   29    '"'      29    '"'      ok
+  43   19    't'      19    't'      ok
+  44   51    'ha'     51    'ha'     ok
+  45   13    'n'      13    'n'      ok
+  46   10    'k'      10    'k'      ok
+  47   33    'e '     33    'e '     ok
+  48   19    't'      19    't'      ok
+  49   14    'o'      14    'o'      ok
+  50   26    ' '      26    ' '      ok
+  51   12    'm'      12    'm'      ok
+  52   0     'a'      0     'a'      ok
+  53   13    'n'      13    'n'      ok
+  54   26    ' '      26    ' '      ok
+  55   24    'y'      24    'y'      ok
+  56   49    'ou'     49    'ou'     ok
+  57   26    ' '      26    ' '      ok
+  58   2     'c'      2     'c'      ok
+  59   0     'a'      0     'a'      ok
+  60   13    'n'      13    'n'      ok
+  61   26    ' '      26    ' '      ok
+  62   24    'y'      24    'y'      ok
+  63   49    'ou'     49    'ou'     ok
+  64   26    ' '      26    ' '      ok
+  65   2     'c'      2     'c'      ok
+  66   0     'a'      0     'a'      ok
+  67   13    'n'      13    'n'      ok
+  68   26    ' '      26    ' '      ok
+  69   24    'y'      24    'y'      ok
+  70   49    'ou'     49    'ou'     ok
+  71   17    'r'      17    'r'      ok
+  72   26    ' '      26    ' '      ok
+  73   5     'f'      5     'f'      ok
+  74   14    'o'      14    'o'      ok
+  75   17    'r'      17    'r'      ok
+  76   26    ' '      26    ' '      ok
+  77   5     'f'      5     'f'      ok
+  78   14    'o'      14    'o'      ok
+  79   17    'r'      17    'r'      ok
+  80   26    ' '      26    ' '      ok
+  81   5     'f'      5     'f'      ok
+  82   14    'o'      14    'o'      ok
+  83   17    'r'      17    'r'      ok
+  ROM  text: ' the treeas. lily and saw a big for with his mommy and said, "thanke to man you can you can your for for for'
+  HOST text: ' the treeas. lily and saw a big for with his mommy and said, "thanke to man you can you can your for for for'
+  identical: True   over 84 tokens
+
+ALL SEEDS EXACT OVER 16+ TOKENS: True

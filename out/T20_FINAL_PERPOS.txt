@@ -1,0 +1,11 @@
+model      runs/final_av2_bpe64_tau0.75.npz
+T = 20   logit_scale 0.045572   chars/token 1.454   (40 x 96 val windows)
+
+positions    nats/token     nats/char     
+0-4          2.3170         1.5938        
+5-9          1.9573         1.3464        
+10-19        1.9660         1.3524        
+
+positions 0-19  2.0516 nats/token  1.4112 nats/char   <- also visible to T=20
+
+ALL POSITIONS  2.0516 nats/token  1.4112 nats/char

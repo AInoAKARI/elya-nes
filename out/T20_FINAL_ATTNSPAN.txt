@@ -1,0 +1,9 @@
+T = 20   heads logged = 456   (seeds 1,26,40,58, 19 steps each)
+
+layer  nonzero    mean dist  p95 dist   max dist   mass >19 back
+0      1.38       1.00       2          7          0.00%       
+1      1.22       0.96       3          9          0.00%       
+2      1.14       0.91       4          11         0.00%       
+
+ATTENTION MASS LANDING MORE THAN 19 POSITIONS BACK: 0.00%
+(19 back is the furthest the T = 20 cartridge could reach.)
