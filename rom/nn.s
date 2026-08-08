@@ -59,8 +59,18 @@ NTOKGEN  = NCTX - 1         ; >= 16, the verification bar
 ; bytes - two PRG-RAM banks - and the kernel's assembled absolute addresses
 ; cannot cross a bank.  See FINDINGS, "Why the two branches do not both fit".
 ATTN_TMAX = 64 / NLAYER
-    .assert NLAYER * NCTX <= 64, error, "NCTX above the QK kernel's ceiling: the key cache row is 64 bytes and holds NLAYER*NCTX entries"
+FASTATTN  = NCTX <= ATTN_TMAX
+
+; Above the ceiling the ROM falls back to the LEGACY attention path - the
+; pointer-walking `dot_qk` / `acc_av` the kernels replaced, over the
+; interleaved KV cache that spreads across all four PRG-RAM banks.  It is
+; three to four times slower per attention MAC and it is the only way to build
+; a context this cartridge cannot address with assembled constants.  It exists
+; because the T = 85 context experiment has to remain reproducible; it is not
+; what ships.  See FINDINGS, "Why the two branches do not both fit".
+.if FASTATTN
     .assert (NCTX - 1) * 256 + 255 <= $1FFF, error, "NCTX above the AV kernel's ceiling: V[t] pages leave the $6000 window"
+.endif
     .assert NTOKGEN >= 16, error, "NTOKGEN below the 16-token verification bar"
 
 ; seed token: the ROM free-runs from a single token, so this is the whole
@@ -147,6 +157,11 @@ OUTB   = $0500              ; signed matmul output, up to 128 entries
 XVEC   = $0580              ; residual stream x[0..63], signed
 Q4HI   = $05C0              ; (q & 15) << 4
 ATTV   = $0600              ; attention output, signed
+.if .not FASTATTN
+ACC8   = $0640              ; 8-bit block accumulators for AV   (legacy path)
+AVL    = $0680              ; 16-bit AV accumulators             (legacy path)
+AVH    = $06C0
+.endif
 SCORL  = $0700
 SCORH  = SCORL + NCTX
 EXPE   = SCORH + NCTX
@@ -189,6 +204,7 @@ KVBASE  = $6000
 ; cannot be built on top of this: at NCTX = 85 the two caches alone need
 ; 3*85*2*64 = 32,640 bytes, all four banks, and there is no bank left to hold
 ; writable code - never mind the addressing ceilings above.
+.if FASTATTN
 KERNBANK = 5
 VBANK    = 6
 KVBANK   = 4
@@ -203,6 +219,26 @@ VBYTES   = NCTX * 256
 ; with no scripting hook can be cross-checked through its .sav file.
 SAVBASE = $8000 - (5 + NTOKGEN)
     .assert SAVBASE >= KTBASE + KTBYTES, error, "sav block overlaps the key cache"
+
+.else
+; ---- legacy long-context path --------------------------------------------
+; One interleaved cache, rows of NDMODEL bytes laid out [layer][k|v][t], the
+; row index resolved at run time and the PRG-RAM bank switched per row.  This
+; is what makes NCTX = 85 addressable at all: 8 KB / 64 = 128 rows per bank
+; exactly, so a row never straddles a bank.
+KVBANK0  = 4                ; $5113 = 4,5,6,7 are the four real PRG-RAM banks
+KVROWS   = NLAYER * 2 * NCTX
+KVBYTES  = KVROWS * NDMODEL
+KVBANKS  = (KVBYTES + 8191) / 8192
+KVLAST   = (KVBYTES - 1) / 8192
+    .assert KVBYTES <= 32768, error, "KV cache exceeds the 32 KB of PRG-RAM"
+
+; the sav block goes in the tail of the LAST bank the cache occupies.  At
+; NCTX = 85 that leaves it exactly 128 bytes.
+SAVBASE = $8000 - (5 + NTOKGEN)
+KVLASTEND = $6000 + (KVBYTES - KVLAST * 8192)
+    .assert SAVBASE >= KVLASTEND, error, "sav block overlaps the KV cache"
+.endif
 
 .zeropage
 wchain:  .res 2
@@ -261,6 +297,14 @@ mulp:    .res 2              ; the no-SMC multiply-row pointer, bench only, and
 avn:     .res 1              ; number of positions with p != 0
 avnt:    .res 1              ; curpos + 1
 ucur:    .res 1              ; chain unit cursor, filled from the top down
+.if .not FASTATTN
+; legacy long-context path only.  Declared LAST so that the shipping build's
+; zero page is byte-for-byte the one the attention work measured.
+kvt:     .res 1              ; KV cache position index
+rowL:    .res 1              ; KV row index, 16 bit: row = (l*2+kv)*NCTX + t
+rowH:    .res 1
+bnkc:    .res 1              ; PRG-RAM bank counter, reset only
+.endif
 
 .segment "BSS"
 res_tokens: .res 96
@@ -340,6 +384,7 @@ tbl_exp:    .incbin "out/model/tbl_exp.bin"
 tbl_sm:     .incbin "out/model/tbl_sm.bin"     ; page aligned by the linker
 tbl_p:      .incbin "out/model/tbl_p.bin"
 
+.if FASTATTN
 ; ===========================================================================
 ; Self-modified kernels.  Assembled for $8000 (PRG-RAM bank 5) but STORED in
 ; the $A000 bank; `reset` copies them across.  See RAMEXEC in FINDINGS for the
@@ -419,6 +464,7 @@ avu_none:                       ; entry used when every p is zero
 .endrepeat
 
 RAMKERN_END:
+.endif
 
 ; ===========================================================================
 ; 32 gather chains, one per page of the $8000 weight window.
@@ -469,7 +515,7 @@ reset:
     sta MMC5_RAMPRO1
     lda #$01
     sta MMC5_RAMPRO2
-    lda #$04                ; PRG-RAM bank 4 (first of the four real banks)
+    lda #4                  ; PRG-RAM bank 4 (first of the four real banks)
     sta MMC5_RAMBANK
     lda #$80
     sta MMC5_PRG8000
@@ -491,6 +537,7 @@ reset:
     sta $0700,x
     inx
     bne @clr
+.if FASTATTN
     ; clear the transposed key cache (KTBYTES = 4 KB, RAM bank 4).  Both
     ; clears cover EVERY byte the cache can occupy.  Clearing less would leave
     ; the untouched positions reading whatever the PRG-RAM powered up with;
@@ -551,6 +598,42 @@ reset:
 @kdone:
     lda #$80
     sta MMC5_PRG8000
+.else
+    ; clear the KV cache: every byte of every bank it occupies.  At NCTX = 20
+    ; that is one bank; at NCTX = 85 it is four.  Clearing only the first would
+    ; leave positions 43..84 reading whatever the PRG-RAM powered up with, and
+    ; the emulator zero-fills it, so the bug would be invisible here and only
+    ; appear on hardware - which is precisely the kind of thing this repo is
+    ; supposed to refuse to ship.
+    lda #0
+    sta bnkc
+@clrbank:
+    lda bnkc
+    clc
+    adc #KVBANK0
+    sta MMC5_RAMBANK
+    lda #<KVBASE
+    sta kptr
+    lda #>KVBASE
+    sta kptr+1
+    ldx #32                 ; 32 pages of 256 bytes = one 8 KB bank
+    lda #0
+@clrpage:
+    ldy #0
+@clrb:
+    sta (kptr),y
+    iny
+    bne @clrb
+    inc kptr+1
+    dex
+    bne @clrpage
+    inc bnkc
+    lda bnkc
+    cmp #KVBANKS
+    bcc @clrbank
+    lda #KVBANK0
+    sta MMC5_RAMBANK
+.endif
 
     lda #SEEDTOK
     sta curtok
@@ -559,11 +642,13 @@ reset:
 
     ldx #254
     stx MARKER              ; SYNC
+.if FASTATTN
 .ifdef ATTNBENCH
     jmp attn_bench
 .endif
 .ifdef RAMEXEC
     jmp ramexec_test
+.endif
 .endif
 .ifdef BENCH
     jmp bench
@@ -619,8 +704,12 @@ DBGPOS = 2
 ; Refusing to assemble is the honest outcome; silently overwriting either
 ; would produce a ROM that disagrees with the host and blames the wrong thing.
     .assert NCTX <= 32, error, "DEBUG snapshot slots are 32 bytes per array"
-    .assert $7E00 >= KTBASE + KTBYTES, error, "DEBUG snapshots collide with the key cache"
     .assert $7FC0 + NCTX <= SAVBASE, error, "DEBUG snapshots collide with the sav block"
+.if FASTATTN
+    .assert $7E00 >= KTBASE + KTBYTES, error, "DEBUG snapshots collide with the key cache"
+.else
+    .assert $7E00 >= KVLASTEND, error, "DEBUG snapshots collide with the KV cache"
+.endif
 dbg_lo: .byte $00, $40, $80, $C0
 dbg_hi: .byte $7E, $7E, $7E, $7E
 
@@ -718,6 +807,7 @@ bench:
 .endif
 
 
+.if FASTATTN
 .ifdef RAMEXEC
 ; --- can MMC5 PRG-RAM be mapped at $8000 AND executed from? ----------------
 ; The whole self-modifying-chain plan depends on the answer, so it is a
@@ -782,8 +872,10 @@ ramexec_test:
     stx MARKER
 @h: jmp @h
 .endif
+.endif
 
 
+.if FASTATTN
 .ifdef ATTNBENCH
 ; --- the NO-self-modifying-code alternative, for a head-to-head number -----
 ; The brief's other idea: keep the multiply row in a zero-page POINTER
@@ -928,6 +1020,7 @@ attn_bench:
     stx MARKER
 @bh: jmp @bh
 .endif
+.endif
 
 ; ===========================================================================
 ; forward(): curtok, curpos -> curtok
@@ -1069,8 +1162,24 @@ savmagic:
 mul64lo:
     .byte 0, 64, 128, 192
 
-lay20:
+.if FASTATTN
+lay20:                          ; KT[d] row offset of layer l = l * NCTX
     .byte 0, NCTX, NCTX * 2
+.else
+; Legacy KV layout is [layer][k|v][t]: row = (curlay*2 + kvsel) * NCTX + kvt.
+; The per-(layer, k/v) blocks are then CONTIGUOUS in t, so the attention loops
+; walk rows in order and cross a PRG-RAM bank boundary at most once per loop
+; instead of ping-ponging.  Row 0 of each block is tabulated because
+; (l*2+kv)*NCTX exceeds a byte at NCTX = 85 (max 5*85 = 425).
+kvbaseL:
+    .repeat NLAYER * 2, i
+    .byte <(i * NCTX)
+    .endrepeat
+kvbaseH:
+    .repeat NLAYER * 2, i
+    .byte >(i * NCTX)
+    .endrepeat
+.endif
 
 ; ===========================================================================
 ; one transformer layer
@@ -1423,6 +1532,7 @@ bias_copy:
     ldx xsave
     rts
 
+.if FASTATTN
 ; post_q both records the query nibbles and patches them straight into the QK
 ; chains' multiply-row operands.  tbl_mul is page aligned, so the operand's
 ; low byte IS (q<<4).  The chains live in the $8000 window, so the weight
@@ -1494,6 +1604,84 @@ post_kv:
     ldx xsave
     rts
 
+.else
+; ---- legacy long-context path --------------------------------------------
+post_q:
+    stx xsave
+    ldy #0
+@l:
+    lda OUTB,y
+    and #$0F
+    asl a
+    asl a
+    asl a
+    asl a
+    sta Q4HI,y
+    iny
+    cpy #NDMODEL
+    bne @l
+    ldx xsave
+    rts
+
+post_kv:
+    stx xsave
+    lda curpos
+    sta kvt
+    jsr kv_ptr
+    ldy #0
+@l:
+    lda OUTB,y
+    and #$0F
+    sta (kptr),y
+    iny
+    cpy #NDMODEL
+    bne @l
+    ldx xsave
+    rts
+
+; row  = (curlay*2 + kvsel) * NCTX + kvt          (0 .. NLAYER*2*NCTX - 1)
+; bank = row >> 7,   kptr = KVBASE + (row & 127) * 64        (clobbers A/X/Y)
+;
+; 8 KB / 64 = 128 rows per bank exactly, so a row NEVER straddles a bank and,
+; being 64-byte aligned, (kptr),y with y < 64 never crosses a page either -
+; the same alignment argument the one-bank version relied on, unchanged.
+; X is free here: every caller (post_kv, attn_head) has already parked the
+; weight-stream offset in xsave.
+kv_ptr:
+    lda curlay
+    asl a
+    clc
+    adc kvsel
+    tay
+    lda kvbaseL,y
+    clc
+    adc kvt
+    sta rowL
+    lda kvbaseH,y
+    adc #0
+    sta rowH
+    lda rowL
+    asl a                   ; C = bit 7 of the row index
+    lda rowH
+    rol a                   ; A = row >> 7
+    clc
+    adc #KVBANK0
+    sta MMC5_RAMBANK
+    lda rowL
+    and #$03
+    tay
+    lda mul64lo,y
+    sta kptr
+    lda rowL
+    and #$7F
+    lsr a
+    lsr a
+    clc
+    adc #>KVBASE
+    sta kptr+1
+    rts
+.endif
+
 post_residual:
     stx xsave
     ldy #0
@@ -1533,6 +1721,7 @@ post_relu:
 ; ===========================================================================
 ; attention
 ; ===========================================================================
+.if FASTATTN
 attention:
     stx xsave
     lda curpos
@@ -1748,6 +1937,223 @@ qkent_hi:
     .byte >(.ident (.sprintf ("qkchain%d", h)))
 .endrepeat
     .assert <qkp <> $FF, error, "qkp would hit the JMP-indirect page bug"
+
+.else
+; ---- legacy long-context path --------------------------------------------
+; The pointer-walking kernels the self-modified chains replaced.  Kept because
+; they are the only form that works when the cache is too large for the chains'
+; assembled absolute addresses; three to four times slower per multiply-add.
+attention:
+    stx xsave
+    lda #0
+    sta hbase
+@head:
+    lda hbase
+    clc
+    adc #NDHEAD
+    sta hend
+    jsr attn_head
+    lda hend
+    sta hbase
+    cmp #NDMODEL
+    bcc @head
+    ldx xsave
+    rts
+
+attn_head:
+    ; ---- scores for t = 0..curpos ------------------------------------
+    lda #0
+    sta tcnt
+@score:
+    lda #0
+    sta kvsel
+    lda tcnt
+    sta kvt
+    jsr kv_ptr
+    jsr dot_qk
+    ldy tcnt
+    lda scL
+    sta SCORL,y
+    lda scH
+    sta SCORH,y
+    inc tcnt
+    lda tcnt
+    cmp curpos
+    beq @score
+    bcc @score
+
+    jsr softmax
+
+    ; ---- AV ----------------------------------------------------------
+    ldy hbase
+    lda #0
+@zero:
+    sta AVL,y
+    sta AVH,y
+    iny
+    cpy hend
+    bne @zero
+
+    lda #0
+    sta tcnt
+@group:
+    ldy hbase
+    lda #0
+@z2:
+    sta ACC8,y
+    iny
+    cpy hend
+    bne @z2
+    lda #0
+    sta gi
+@avt:
+    lda #1
+    sta kvsel
+    lda tcnt
+    sta kvt
+    jsr kv_ptr
+    ldy tcnt
+    lda P4HI,y
+    sta ph
+    jsr acc_av
+    inc tcnt
+    inc gi
+    lda tcnt
+    cmp curpos
+    beq @cont
+    bcs @flush
+@cont:
+    lda gi
+    cmp #8
+    bcc @avt
+@flush:
+    jsr av_fold
+    lda tcnt
+    cmp curpos
+    beq @group
+    bcc @group
+    jsr av_quant
+    rts
+
+; ---- score = sum_j mul[(q<<4)|k] - MULBIAS*NDHEAD, blocked by 8 -----------
+dot_qk:
+    lda #0
+    sta scL
+    sta scH
+    ldy hbase
+    lda #NDHEAD / 8
+    sta blkn
+@blk:
+    lda #0
+    sta bacc
+    clc
+    .repeat 8
+    lda (kptr),y
+    ora Q4HI,y
+    tax
+    lda bacc
+    adc tbl_mul,x
+    sta bacc
+    iny
+    .endrepeat
+    lda bacc
+    clc
+    adc scL
+    sta scL
+    bcc @1
+    inc scH
+@1:
+    dec blkn
+    beq @out
+    jmp @blk                ; the unrolled block is >127 bytes, so bne cannot reach
+@out:
+    sec
+    lda scL
+    sbc #<(MULBIAS * NDHEAD)
+    sta scL
+    lda scH
+    sbc #>(MULBIAS * NDHEAD)
+    sta scH
+    rts
+
+; ---- add one position's products into the 8-bit block accumulators -------
+acc_av:
+    ldy hbase
+    lda #NDHEAD / 8
+    sta blkn
+    clc
+@blk:
+    .repeat 8
+    lda (kptr),y
+    ora ph
+    tax
+    lda ACC8,y
+    adc tbl_mul,x
+    sta ACC8,y
+    iny
+    .endrepeat
+    dec blkn
+    beq @out
+    jmp @blk                ; the unrolled block is >127 bytes
+@out:
+    rts
+
+av_fold:
+    ; uses X, not Y: the 6502 has no `inc abs,y`.  X is free here because
+    ; `attention` already saved the weight-stream offset in xsave.
+    ldx hbase
+@l:
+    lda ACC8,x
+    clc
+    adc AVL,x
+    sta AVL,x
+    bcc @1
+    inc AVH,x
+@1:
+    inx
+    cpx hend
+    bne @l
+    rts
+
+; ---- att[j] = quant(AV[j] - MULBIAS*(curpos+1), 4) ------------------------
+av_quant:
+    lda curpos
+    clc
+    adc #1
+    sta t0
+    lda #0
+    sta sumL
+    sta sumH
+    ldy t0
+@mul:
+    lda sumL
+    clc
+    adc #MULBIAS
+    sta sumL
+    lda sumH
+    adc #0
+    sta sumH
+    dey
+    bne @mul
+
+    ldy hbase
+@l:
+    sty t1
+    sec
+    lda AVL,y
+    sbc sumL
+    sta totL
+    lda AVH,y
+    sbc sumH
+    sta totH
+    jsr requant_k4
+    ldy t1
+    sta ATTV,y
+    iny
+    cpy hend
+    bne @l
+    rts
+.endif
 
 ; ===========================================================================
 ; softmax over SCORL/SCORH[0..curpos] -> P4HI
