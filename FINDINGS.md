@@ -960,7 +960,7 @@ the shipped ROM, not a lookalike.
 | --- | --- |
 | tokens | 19/19 exact vs host |
 | mean cycles/token | **1,233,099** |
-| pos 0 | 1,103,687 |
+| pos 0 | 1,103,615 (transcript: `out/ATTN_BASELINE.txt`) |
 | pos 18 (full context) | **1,366,939** |
 | profiled pos-18 attention | **302,624 cycles, 21.6%** |
 | profiled pos-0 attention | 39,812 cycles, 3.5% |
@@ -1321,7 +1321,7 @@ instrument, `cycles = round(delta_as * 1789772 / 1e18)`.
 | attention share of a token | **21.6%** | **7.3%** | |
 | cycles/token, mean over 19 | 1,233,099 | **1,116,979** | -9.42% |
 | cycles/token, pos 18 | 1,366,939 | **1,147,754** | -16.03% |
-| cycles/token, pos 0 | 1,103,687 | **1,085,675** | -1.63% |
+| cycles/token, pos 0 | 1,103,615 | **1,085,675** | -1.63% |
 | wall clock at 1,789,772 Hz | 0.6890 s | **0.6241 s** | |
 
 ### Per kernel
