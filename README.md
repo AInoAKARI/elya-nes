@@ -28,10 +28,14 @@ cache spread across all four banks. Retrained on the identical recipe:
 | | T = 20 | T = 85 |
 |---|---|---|
 | val nats/char, seed 1 / seed 2 | **1.4133 / 1.4149** | **1.4347 / 1.4318** (worse) |
-| ROM vs host | 57/57 tokens exact | **252/252 tokens exact** |
-| mean cycles/token | 1,233,099 | **1,729,505** (+40%) |
-| attention share, last position | 22.0% | **54.1%** |
-| seconds/token, last position | 0.764 | **1.319** |
+| ROM vs host | 1,216/1,216 tokens exact (64 seeds) | **252/252 tokens exact** (3 seeds) |
+| mean cycles/token | 1,116,979 | **1,698,272** (+52%) |
+| attention share, last position | 7.3% | **52.9%** |
+| seconds/token, last position | 0.641 | **1.303** |
+
+(`T = 20` runs the attention kernels; `T = 85` is past their addressing
+ceiling and runs the legacy attention path, which is why the cycle gap is
+wider than the context ratio. Both columns are measured on this tree.)
 
 Two seeds each, and **the two groups do not overlap**: the worst `T = 20` run
 beats the best `T = 85` run by 0.0169 nats/char, six times the within-context
