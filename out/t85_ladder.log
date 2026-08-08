@@ -1,1 +1,3 @@
 t85_tau0.75                  step     1  fit 7.4726  val 7.4562  density 0.5493  3s
+t85_tau0.75                  step  4000  fit 2.5565  val 2.5522  density 0.5384  316s
+t85_tau0.75                  step  8000  fit 2.4629  val 2.4657  density 0.5332  629s

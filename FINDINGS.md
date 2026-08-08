@@ -1056,3 +1056,52 @@ TOTAL   144241504 cycles   80.5921 s   (mean 1717160 cycles/token)
 **84 generated tokens, every one bit-identical to `host/ref.py`**, exercising
 all four PRG-RAM banks, both `$A000` banks and the whole 340-byte score map.
 Transcript: `out/T85_RANDOM_VERIFICATION.txt`.
+
+## Two measurements taken BEFORE the retrain, which predict its outcome
+
+Both are on the shipped `T = 20` cartridge, and both were run before any
+`T = 85` model existed, so neither can be a post-hoc rationalisation.
+
+### 1. The loss stops improving with context after about five tokens
+
+`train/perpos.py` scores the held-out split position by position with the same
+quantised forward pass the ROM runs:
+
+```
+model      runs/final_av2_bpe64_tau0.75.npz     T = 20
+positions    nats/token     nats/char
+0-4          2.3085         1.5879
+5-9          1.9470         1.3393
+10-19        1.9774         1.3602
+```
+
+The curve falls sharply from position 0 to about position 5 - roughly **seven
+characters** of context - and is then **flat, and very slightly worse**, all
+the way to position 19. Going from 5 tokens of context to 19 buys nothing
+measurable. A model that cannot use the 20-token window it already has is not
+obviously going to use an 85-token one.
+
+### 2. The attention can only reach one or two positions, by construction
+
+`train/attnspan.py` records the quantised softmax vector for every head at
+every position over four real generations:
+
+```
+T = 20   heads logged = 456
+layer  nonzero    mean dist  p95 dist   max dist   mass >19 back
+0      1.38       1.00       2          7          0.00%
+1      1.22       0.96       3          9          0.00%
+2      1.14       0.91       4          11         0.00%
+```
+
+**On average 1.1 to 1.4 positions receive any weight at all**, and the mean
+attention distance is 1.0 - the previous token. That is not a training
+accident; it is the kernel. The quantised softmax normalises so that
+`sum_t p_t <= 8` with every `p_t` an integer in `0..7`, so at most 8 positions
+can carry weight whatever `T` is, and the exp table plus the power-of-two
+normalisation drive it far below that ceiling in practice.
+
+**The prediction this sets up:** `T = 85` will cost a lot of cycles and buy
+little or no loss. If that is what the retrain shows, the ceiling is capacity
+(or the softmax's resolution), not the window. Recorded here, in advance, so
+the retrain is a test and not an illustration.
