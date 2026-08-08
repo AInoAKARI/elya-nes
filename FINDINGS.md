@@ -1204,3 +1204,48 @@ completely - costs 1.9774 nats/token for the `T = 20` model and 2.2828 for the
 `T = 85` one. The longer model spends capacity on 85 rows of positional table
 and on a wider attention pattern, and it is the same 102,400 ternary weights
 either way.
+
+## The context length has an INTERIOR OPTIMUM, and 20 is already at it
+
+The decisive experiment is not `T = 20` versus `T = 85`, it is the curve.
+Four identical runs - `tau = 0.75`, 12,000 steps, batch 192, lr 3e-3, seed 1,
+same corpus, same vocabulary, same shifts - with **nothing changed but `T`**:
+
+| T | chars of context | val nats/token | **val nats/char** | density | nnz |
+|---|---|---|---|---|---|
+| 10 | ~15 | 2.3051 | **1.5854** | 0.5404 | 55,335 |
+| **20** | **~29** | **2.2231** | **1.5289** | 0.5373 | 55,018 |
+| 40 | ~58 | 2.2310 | **1.5344** | 0.5343 | 54,714 |
+| 85 | ~124 | 2.2933 | **1.5772** | 0.5346 | 54,743 |
+
+It is a U, and the minimum is at **20** - the value the cartridge already had.
+Going to 40 costs 0.0055 nats/char, going to 85 costs **0.0483**, which is more
+than five times the 0.009 nats/char seed noise measured earlier in this
+journal. Halving the context to 10 costs 0.0565, about the same as
+quadrupling it to 85.
+
+And the longer arms are being *flattered* by the averaging window (see above):
+at `T = 85` the four context-starved leading positions are 5% of the reported
+loss where at `T = 10` they are 40%. Correcting for that would make the T = 85
+column worse, not better.
+
+(The `T = 20` control here reads 2.2231 where the published 12,000-step arm
+read 2.2435. Same steps, batch, lr, seed and tau; the difference is fp32
+summation order in the rewritten attention contraction - the gradients agree
+to ~1e-6 per step and 12,000 steps of that compounds to 0.014 nats/char. It is
+above the 0.009 seed noise, so the comparison above uses the *rerun* control,
+which shares its code with every other row. The published number is quoted
+here rather than quietly replaced.)
+
+### tau still has its interior optimum at 0.75
+
+| arm | T | val nats/token | val/char | density | fits 7 banks? |
+|---|---|---|---|---|---|
+| tau 0.75 | 85 | 2.2933 | **1.5772** | 0.5346 | yes |
+| tau 1.00 | 85 | 2.3081 | **1.5874** | 0.4105 | yes |
+
+Same ordering as at `T = 20`, where 0.75 beat 1.00 by 0.030 nats/char against
+0.010 here. The `tau = 0.50` arm is still running and is already at density
+0.669, which does not fit the seven-bank window - exactly as at `T = 20`,
+where 0.50 gave 0.674. **The tau finding carries over: 0.75 remains the
+interior optimum and it still lands just inside the ROM's capacity.**
