@@ -19,6 +19,27 @@ seconds per token on a 1.79 MHz 2A03.
 
 Every number in `FINDINGS.md` is measured. Nothing here is estimated.
 
+### Is 29 characters of context the reason it cannot form a sentence? No.
+
+`T` is now a build parameter and the cartridge was rebuilt at the largest
+context its 32 KB of PRG-RAM can hold - **85 tokens, ~124 characters**, the KV
+cache spread across all four banks. Retrained on the identical recipe:
+
+| | T = 20 | T = 85 |
+|---|---|---|
+| val nats/char | **1.4133** | **1.4344** (worse) |
+| ROM vs host | 57/57 tokens exact | **252/252 tokens exact** |
+| mean cycles/token | 1,233,099 | **1,729,505** (+40%) |
+| attention share, last position | 22.0% | **54.1%** |
+| seconds/token, last position | 0.764 | **1.319** |
+
+The attention did learn to reach - layer 2's mean attention distance went from
+0.91 to 7.82 and 13.7% of its mass now lands beyond what `T = 20` could see -
+and the loss got **worse** anyway. Held-out loss is flat from about position 10
+(~15 characters) in every model that has room to show it, and at matched
+positions the short-context model wins everywhere. **The ceiling is capacity,
+not context.** Full argument in `FINDINGS.md`.
+
 ## Quick start
 
 ```sh
@@ -58,12 +79,16 @@ ROM that runs perfectly and says the wrong thing.
 | primitives vs prior run | **19/19 match** |
 | bank crossings per token | **6** (36 cycles, 0.003% of a token) |
 | ternary kernel | **10.688 cycles/MAC** asymptotic vs the 8-cycle primitive |
-| ROM vs host reference | **19/19 tokens EXACT**, at three independent seed tokens: **57/57** |
-| trained model | val **2.0546 nats/token = 1.4133 nats/char** (uniform 4.1589) |
+| ROM vs host reference, T = 20 | **19/19 tokens EXACT**, at three independent seed tokens: **57/57** |
+| ROM vs host reference, T = 85 | **84/84 tokens EXACT**, at three independent seed tokens: **252/252** |
+| trained model (T = 20) | val **2.0546 nats/token = 1.4133 nats/char** (uniform 4.1589) |
+| trained model (T = 85) | val **2.0856 nats/token = 1.4344 nats/char** - longer context, worse |
 | nonzero weights | **52,207** of 102,400 (density 0.5098) |
-| cycles per token (trained) | 1,103,615 (pos 0) .. 1,366,939 (pos 18), mean **1,233,099** |
+| cycles per token (T = 20) | 1,103,615 (pos 0) .. 1,366,939 (pos 18), mean **1,233,099** |
+| cycles per token (T = 85) | 1,104,175 (pos 0) .. 2,360,222 (pos 83), mean **1,729,505** |
 | cycles per token (random init) | mean **1,221,027** - trained costs +0.99% for +1.8% nnz |
-| wall clock at 1,789,772 Hz | **0.6890 s/token** |
+| wall clock at 1,789,772 Hz | **0.6890 s/token** at T = 20, **0.9663** at T = 85 |
+| attention share at full context | **22.0%** at T = 20, **54.1%** at T = 85 |
 | independent emulator | ares 147 gives the **identical** 19 tokens (random-init build) |
 
 ## Layout
