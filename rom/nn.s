@@ -119,10 +119,20 @@ KVBASE  = $6000
 ; The 256-byte t stride is what makes the AV kernel's `ldx VBASE+t*256,y`
 ; free of page crossings for every one of the 192 (l,d) offsets, and it makes
 ; the base a BUILD-TIME CONSTANT - the kernel never patches it.
+; The key cache gets the MIRROR treatment: QK sums over d for a fixed t, so
+; there d is the unrolled/patched axis and t is the register axis, and the
+; cache has to be TRANSPOSED for the address to be linear in t:
+;
+;   KT[d][l][t] = KTBASE + d*64 + (l*20 + t)
+;
+; 64-byte d stride, index l*20+t <= 59, so `ldx KTBASE+d*64,y` never crosses
+; a page either.  K and V therefore want OPPOSITE layouts, which is why they
+; live in different PRG-RAM banks.
 KERNBANK = 5
 VBANK    = 6
 KVBANK   = 4
 VBASE    = $6000
+KTBASE   = $6000
 
 .zeropage
 wchain:  .res 2
@@ -157,7 +167,8 @@ curtok:  .res 1
 tcnt:    .res 1
 gi:      .res 1
 kvsel:   .res 1
-kvt:     .res 1
+qkp:     .res 2
+ktoff:   .res 1
 blkn:    .res 1
 sumL:    .res 1
 sumH:    .res 1
@@ -278,6 +289,44 @@ avchain:
 .endrepeat
     rts
 
+; --- QK: score_t = sum_d mul[(q_d<<4)|k_t[d]] - MULBIAS*NDHEAD -------------
+;
+; The mirror image of the AV kernel.  Here it is q_d that is constant across
+; the loop variable (t), so the multiply row is patched per d and the unrolled
+; axis is d.  One chain per head, because a head's 32 units address a fixed
+; set of KT rows; `attn_head` points qkp at the right one.
+;
+; Carry: a block of 8 table entries is at most 8*25 = 200, so no `clc` is
+; needed between elements and the fold is every eighth unit.
+.repeat NHEAD, h
+    .ident (.sprintf ("qkchain%d", h)):
+    lda #0
+    sta scL
+    sta scH
+    clc
+    .repeat NDHEAD, i
+    ldx KTBASE + (h * NDHEAD + i) * 64, y
+    .ident (.sprintf ("qkop%02d", h * NDHEAD + i)) = * + 1
+    adc tbl_mul, x
+    .if (i & 7) = 7
+    adc scL
+    sta scL
+    bcc *+4
+    inc scH
+    lda #0
+    clc
+    .endif
+    .endrepeat
+    sec
+    lda scL
+    sbc #<(MULBIAS * NDHEAD)
+    sta scL
+    lda scH
+    sbc #>(MULBIAS * NDHEAD)
+    sta scH
+    rts
+.endrepeat
+
 RAMKERN_END:
 
 ; ===========================================================================
@@ -351,29 +400,12 @@ reset:
     sta $0700,x
     inx
     bne @clr
-    ; clear the KV cache
+    ; clear the transposed key cache ($6000..$6FFF, RAM bank 4)
     ldx #0
 @clrkv:
-    sta $6000,x
-    sta $6100,x
-    sta $6200,x
-    sta $6300,x
-    sta $6400,x
-    sta $6500,x
-    sta $6600,x
-    sta $6700,x
-    sta $6800,x
-    sta $6900,x
-    sta $6A00,x
-    sta $6B00,x
-    sta $6C00,x
-    sta $6D00,x
-    sta $6E00,x
-    sta $6F00,x
-    sta $7000,x
-    sta $7100,x
-    sta $7200,x
-    sta $7300,x
+    .repeat 16, pg
+    sta KTBASE + pg * 256, x
+    .endrepeat
     inx
     bne @clrkv
 
@@ -795,8 +827,8 @@ savmagic:
 mul64lo:
     .byte 0, 64, 128, 192
 
-lay40:
-    .byte 0, NCTX * 2, NCTX * 4
+lay20:
+    .byte 0, NCTX, NCTX * 2
 
 ; ===========================================================================
 ; one transformer layer
@@ -1149,31 +1181,53 @@ bias_copy:
     ldx xsave
     rts
 
+; post_q both records the query nibbles and patches them straight into the QK
+; chains' multiply-row operands.  tbl_mul is page aligned, so the operand's
+; low byte IS (q<<4).  The chains live in the $8000 window, so the weight
+; stream has to step aside for the duration; wbank puts it back.
 post_q:
     stx xsave
-    ldy #0
-@l:
-    lda OUTB,y
+    lda #KERNBANK
+    sta MMC5_PRG8000
+.repeat NDMODEL, d
+    lda OUTB + d
     and #$0F
     asl a
     asl a
     asl a
     asl a
-    sta Q4HI,y
-    iny
-    cpy #NDMODEL
-    bne @l
+    sta Q4HI + d                ; kept for the DEBUG dump only
+    sta .ident (.sprintf ("qkop%02d", d))
+.endrepeat
+    lda wbank
+    ora #$80
+    sta MMC5_PRG8000
     ldx xsave
     rts
 
 post_kv:
     stx xsave
     lda kvsel
-    bne @v
-    lda curpos
-    sta kvt
-    jsr kv_ptr
-    jmp @go
+    beq @k
+    jmp @v                      ; the unrolled scatter is far out of bne range
+@k:
+    ; K[curlay][curpos][d] -> KT[d][curlay][curpos], a stride-64 scatter.
+    ; Unrolled because the destination page is then a build-time constant and
+    ; `sta abs,x` costs 5 whatever X is: 11 cycles an element against the 19
+    ; the pointer form cost.
+    ldx curlay
+    lda lay20,x
+    clc
+    adc curpos
+    tax
+.repeat NDMODEL, d
+    lda OUTB + d
+    and #$0F
+    sta KTBASE + d * 64, x
+.endrepeat
+    ldx xsave
+    rts
+
 @v:                             ; V[curpos][curlay][d], RAM bank 6
     lda #VBANK
     sta MMC5_RAMBANK
@@ -1196,27 +1250,6 @@ post_kv:
     lda #KVBANK
     sta MMC5_RAMBANK
     ldx xsave
-    rts
-
-; kptr = KVBASE + (lay40[curlay] + kvt*2 + kvsel) * 64      (clobbers A/Y)
-kv_ptr:
-    ldy curlay
-    lda lay40,y
-    clc
-    adc kvt
-    adc kvt
-    adc kvsel
-    pha
-    and #$03
-    tay
-    lda mul64lo,y
-    sta kptr
-    pla
-    lsr a
-    lsr a
-    clc
-    adc #>KVBASE
-    sta kptr+1
     rts
 
 post_residual:
@@ -1303,20 +1336,32 @@ attention:
 attn_head:
     ; ---- scores for t = 0..curpos ------------------------------------
     AMARK 34
+    lda hbase                   ; hbase / NDHEAD -> this head's QK chain
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda qkent_lo,y
+    sta qkp
+    lda qkent_hi,y
+    sta qkp+1
+    ldy curlay
+    lda lay20,y
+    sta ktoff                   ; y index into KT[d] = curlay*20 + t
     lda #0
     sta tcnt
 @score:
-    lda #0
-    sta kvsel
-    lda tcnt
-    sta kvt
-    jsr kv_ptr
-    jsr dot_qk
+    ldy ktoff
+    jsr qk_call
+    AMARK 33
     ldy tcnt
     lda scL
     sta SCORL,y
     lda scH
     sta SCORH,y
+    inc ktoff
     inc tcnt
     lda tcnt
     cmp curpos
@@ -1399,48 +1444,19 @@ avent_hi:
 .endrepeat
     .assert <avp <> $FF, error, "avp would hit the JMP-indirect page bug"
 
-; ---- score = sum_j mul[(q<<4)|k] - MULBIAS*NDHEAD, blocked by 8 -----------
-dot_qk:
+qk_call:
     AMARK 32
-    lda #0
-    sta scL
-    sta scH
-    ldy hbase
-    lda #NDHEAD / 8
-    sta blkn
-@blk:
-    lda #0
-    sta bacc
-    clc
-    .repeat 8
-    lda (kptr),y
-    ora Q4HI,y
-    tax
-    lda bacc
-    adc tbl_mul,x
-    sta bacc
-    iny
-    .endrepeat
-    lda bacc
-    clc
-    adc scL
-    sta scL
-    bcc @1
-    inc scH
-@1:
-    dec blkn
-    beq @out
-    jmp @blk                ; the unrolled block is >127 bytes, so bne cannot reach
-@out:
-    sec
-    lda scL
-    sbc #<(MULBIAS * NDHEAD)
-    sta scL
-    lda scH
-    sbc #>(MULBIAS * NDHEAD)
-    sta scH
-    AMARK 33
-    rts
+    jmp (qkp)
+
+qkent_lo:
+.repeat NHEAD, h
+    .byte <(.ident (.sprintf ("qkchain%d", h)))
+.endrepeat
+qkent_hi:
+.repeat NHEAD, h
+    .byte >(.ident (.sprintf ("qkchain%d", h)))
+.endrepeat
+    .assert <qkp <> $FF, error, "qkp would hit the JMP-indirect page bug"
 
 ; ===========================================================================
 ; softmax over SCORL/SCORH[0..curpos] -> P4HI
