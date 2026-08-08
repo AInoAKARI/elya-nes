@@ -1576,3 +1576,48 @@ long-range head the model *did* learn unable to pay for itself.
 * **The ares cross-check was not repeated.** The `.sav` block moved to the tail
   of the last KV bank and the offset changed; nothing was run against ares 147
   at `T = 85`.
+
+## The guards were tested by making them fail
+
+`T` being a build parameter means the ROM has to refuse the values it cannot
+serve, and an assertion nobody has seen fire is an assertion nobody knows
+works. Each was deliberately tripped:
+
+```
+NCTX=86  -> KV cache exceeds the 32 KB of PRG-RAM
+            score arrays overflow page 7
+            EXPE,y would cross a page
+NCTX=90  -> (the same three)
+NCTX=16  -> NTOKGEN below the 16-token verification bar
+NCTX=85 + -DDEBUG -> DEBUG snapshots collide with the KV cache at this NCTX
+```
+
+Two independent limits land on **85**: `3*NCTX*2*64 <= 32768` gives
+`NCTX <= 85`, and `3*NCTX <= 256` for the score arrays in page 7 gives
+`NCTX <= 85` as well (`3*85 = 255`). The cartridge's context ceiling is 85 for
+two unrelated reasons at once.
+
+## An intermediate context also verifies: T = 40, the two-bank case
+
+```
+weights    102400   nonzero 54714   density 0.5343
+max|dW| = 0   over 102400 ternary weights -> EXACT
+TOKENS MATCHING: 39/39  -> EXACT
+TOTAL     55423746 cycles   30.9669 s   (mean 1421121 cycles/token)
+```
+
+Transcript `out/T40_VERIFICATION.txt`. **Measured cost against context**, same
+kernel, comparable `nnz`:
+
+| T | KV banks | mean cycles/token | last-position cycles | s/token, last position |
+|---|---|---|---|---|
+| 20 | 1 | 1,238,160 | 1,375,497 (pos 18) | 0.769 |
+| 40 | 2 | 1,421,121 | 1,706,759 (pos 38) | 0.954 |
+| 85 | 4 | 1,729,505 | 2,360,222 (pos 83) | 1.319 |
+
+Linear in the last position, as the attention arithmetic says it must be:
+fitting `last = a + b*(p+1)` to the T = 40 and T = 85 points gives
+`b = 10,067` cycles per extra position and `a = 1,067,600`, and that predicts
+1,258,873 at `p = 18` against the 1,375,497 measured - 8.5% low, because the
+three models have different `nnz` (55,018 / 54,714 / 52,186) and `nnz` sets the
+constant term. Within a model the relation is exact by construction.
