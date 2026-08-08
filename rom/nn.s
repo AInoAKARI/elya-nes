@@ -311,9 +311,11 @@ avu_none:                       ; entry used when every p is zero
 ; needed between elements and the fold is every eighth unit.
 .repeat NHEAD, h
     .ident (.sprintf ("qkchain%d", h)):
-    lda #0
-    sta scL
+    lda #<(-(MULBIAS * NDHEAD))   ; seed with the bias rather than subtract it
+    sta scL                       ; afterwards: 14 cycles a call instead of 30
+    lda #>(-(MULBIAS * NDHEAD))
     sta scH
+    lda #0
     clc
     .repeat NDHEAD, i
     ldx KTBASE + (h * NDHEAD + i) * 64, y
@@ -328,13 +330,6 @@ avu_none:                       ; entry used when every p is zero
     clc
     .endif
     .endrepeat
-    sec
-    lda scL
-    sbc #<(MULBIAS * NDHEAD)
-    sta scL
-    lda scH
-    sbc #>(MULBIAS * NDHEAD)
-    sta scH
     rts
 .endrepeat
 
