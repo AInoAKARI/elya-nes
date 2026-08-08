@@ -81,6 +81,17 @@ MMC5_PRGE000 = $5117
 .endmacro
 PMARK_COST = 12
 
+; Same shape, gated separately, so the attention breakdown can be measured
+; without perturbing the PROFILE build the headline numbers come from.
+.macro AMARK v
+.ifdef ATTNPROF
+    stx xsave2              ; 3
+    ldx #v                  ; 2
+    stx MARKER              ; 4
+    ldx xsave2              ; 3   = 12 cycles, A/Y/carry untouched
+.endif
+.endmacro
+
 ; ---- fixed pages in system RAM (constants, NOT bss - see nn.cfg) ----------
 ACTB   = $0400              ; biased activation input page (the adc target)
 OUTB   = $0500              ; signed matmul output, up to 128 entries
@@ -1021,6 +1032,7 @@ attention:
 
 attn_head:
     ; ---- scores for t = 0..curpos ------------------------------------
+    AMARK 34
     lda #0
     sta tcnt
 @score:
@@ -1040,10 +1052,14 @@ attn_head:
     cmp curpos
     beq @score
     bcc @score
+    AMARK 35
 
+    AMARK 36
     jsr softmax
+    AMARK 37
 
     ; ---- AV ----------------------------------------------------------
+    AMARK 40
     ldy hbase
     lda #0
 @zero:
@@ -1092,10 +1108,12 @@ attn_head:
     beq @group
     bcc @group
     jsr av_quant
+    AMARK 41
     rts
 
 ; ---- score = sum_j mul[(q<<4)|k] - MULBIAS*NDHEAD, blocked by 8 -----------
 dot_qk:
+    AMARK 32
     lda #0
     sta scL
     sta scH
@@ -1133,10 +1151,12 @@ dot_qk:
     lda scH
     sbc #>(MULBIAS * NDHEAD)
     sta scH
+    AMARK 33
     rts
 
 ; ---- add one position's products into the 8-bit block accumulators -------
 acc_av:
+    AMARK 38
     ldy hbase
     lda #NDHEAD / 8
     sta blkn
@@ -1155,6 +1175,7 @@ acc_av:
     beq @out
     jmp @blk                ; the unrolled block is >127 bytes
 @out:
+    AMARK 39
     rts
 
 av_fold:

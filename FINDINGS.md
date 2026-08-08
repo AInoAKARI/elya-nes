@@ -967,3 +967,36 @@ The brief's 1,233,099 / 302,444 / 21.8% / 16.34 / 8.19 figures come from
 The cycles/token figure agrees to the digit; the attention figure differs by
 0.06%. All deltas below are against **302,624 / 1,366,939 / 1,233,099**, the
 numbers this session measured on the ROM it is actually editing.
+
+## Where the 302 k cycles actually go
+
+`tools/run_attn_profile.py` on an `-DATTNPROF` build (five nested 12-cycle
+marker pairs, each enclosing region corrected for the markers inside it):
+
+| region | pos 0 | pos 18 (full context) |
+| --- | ---: | ---: |
+| QK kernel (`dot_qk`) | 5,452 | **103,568** |
+| score-loop other (`kv_ptr`, score store, loop) | 726 | 12,162 |
+| softmax | 2,316 | **33,046** |
+| AV kernel (`acc_av`) | 5,160 | **98,040** |
+| AV other (`av_fold`, `av_quant`, zeroing, `kv_ptr`) | 26,074 | 56,204 |
+| accounted | 39,728 | 303,020 |
+
+Measured per-MAC, **in situ**:
+
+| kernel | cycles/call | MACs/call | cycles/MAC |
+| --- | ---: | ---: | ---: |
+| `dot_qk` | 908.5 | 32 | **28.39** |
+| `acc_av` | 860.0 | 32 | **26.88** |
+
+The 23 and 25 in the brief are the straight-line inner loops; the extra 3-5 is
+the per-block carry fold and the call frame. Two things this measurement
+changes about the plan:
+
+* **`softmax` is 11% of attention** and was not on the list at all. 5,508
+  cycles for 19 positions is 290 cycles per position, for what is a table
+  lookup and a shift.
+* **"AV other" is 18.5%** - `av_fold` and `av_quant` and the per-t `kv_ptr`
+  together cost more than the score loop's entire non-kernel overhead. A
+  rewrite that keeps `acc_av` but leaves the bookkeeping alone can win at most
+  a third of the AV cost.
