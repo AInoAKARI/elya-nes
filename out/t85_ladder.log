@@ -1,8 +1,6 @@
 Traceback (most recent call last):
-  File "/home/scott/elya-nes-ctx/train/train_nes.py", line 160, in <module>
-    sys.exit(main())
-             ~~~~^^
-  File "/home/scott/elya-nes-ctx/train/train_nes.py", line 116, in main
+  File "/home/scott/elya-nes-ctx/train/train_nes.t85_ladder_tau0.50           step  1000  fit 2.9666  val 2.9623  density 0.6835  252s
+t/elya-nes-ctx/train/train_nes.py", line 116, in main
     lg = model(x) * scale()
          ~~~~~^^^
   File "/home/scott/.local/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
