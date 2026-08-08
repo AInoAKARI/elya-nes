@@ -1621,3 +1621,17 @@ fitting `last = a + b*(p+1)` to the T = 40 and T = 85 points gives
 1,258,873 at `p = 18` against the 1,375,497 measured - 8.5% low, because the
 three models have different `nnz` (55,018 / 54,714 / 52,186) and `nnz` sets the
 constant term. Within a model the relation is exact by construction.
+
+## What is committed, and which cartridge is the cartridge
+
+`out/nn.nes` remains the **T = 20** cartridge, because it is the better model:
+1.4133 nats/char against 1.4346, at 0.689 s/token against 0.966. The `T = 85`
+build is committed alongside it as `out/nn_t85.nes` (and `out/nnprof_t85.nes`)
+so the result can be re-run, not because it is an improvement. Shipping the
+longer-context ROM would be shipping a slower cartridge that says less.
+
+Note that `out/nn.nes` is now 106,512 bytes rather than the 90,128 it was: the
+generalised ROM carries a separate positional bank and a spare, so the image is
+96 KB of PRG whatever `T` is. It generates the same 19 tokens and measures
+1,238,160 cycles/token against the shipped 1,233,099 - the +0.41% recorded
+earlier.
