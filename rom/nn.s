@@ -320,6 +320,9 @@ reset:
 
     ldx #254
     stx MARKER              ; SYNC
+.ifdef RAMEXEC
+    jmp ramexec_test
+.endif
 .ifdef BENCH
     jmp bench
 .endif
@@ -462,6 +465,72 @@ bench:
     stx MARKER
 @hang2:
     jmp @hang2
+.endif
+
+
+.ifdef RAMEXEC
+; --- can MMC5 PRG-RAM be mapped at $8000 AND executed from? ----------------
+; The whole self-modifying-chain plan depends on the answer, so it is a
+; measurement, not an assumption.  Reports three marker bytes:
+;   111 = the $8000 window read back what we wrote to it (it is RAM)
+;   112 = a subroutine assembled into that RAM actually executed
+;   113 = the $6000 window (RAM bank 4) still holds its own data
+ramexec_stub:
+    .byte $A2, 112          ; ldx #112
+    .byte $8E, $00, $03     ; stx MARKER
+    .byte $60               ; rts
+RAMEXEC_LEN = 6
+
+ramexec_test:
+    lda #$AA
+    sta $6000               ; bank 4 marker byte, must survive
+    lda #5
+    sta MMC5_PRG8000        ; bit 7 clear -> PRG-RAM bank 5 at $8000
+    ldx #0
+@cp:
+    lda ramexec_stub,x
+    sta $8000,x
+    inx
+    cpx #RAMEXEC_LEN
+    bne @cp
+    lda $8000
+    cmp #$A2
+    bne @nr
+    ldx #111
+    stx MARKER
+@nr:
+    jsr $8000               ; should emit 112
+    lda $6000
+    cmp #$AA
+    bne @nk
+    ldx #113
+    stx MARKER
+@nk:
+    ; are RAM banks 4,5,6,7 four INDEPENDENT 8 KB banks at $6000?
+    ; write the bank number into each, then read them all back.
+    ldy #4
+@wr:
+    sty MMC5_RAMBANK
+    sty $6001
+    iny
+    cpy #8
+    bne @wr
+    ldy #4
+@rd:
+    sty MMC5_RAMBANK
+    cpy $6001
+    bne @bad
+    iny
+    cpy #8
+    bne @rd
+    ldx #114                ; 114 = banks 4..7 are independent
+    stx MARKER
+@bad:
+    lda #4
+    sta MMC5_RAMBANK
+    ldx #M_DONE
+    stx MARKER
+@h: jmp @h
 .endif
 
 ; ===========================================================================

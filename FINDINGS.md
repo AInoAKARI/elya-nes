@@ -1000,3 +1000,21 @@ changes about the plan:
   together cost more than the score loop's entire non-kernel overhead. A
   rewrite that keeps `acc_av` but leaves the bookkeeping alone can win at most
   a third of the AV cost.
+
+## The self-modifying-code plan needs three things from MMC5; all three measured
+
+`ca65 -DRAMEXEC` builds a ROM whose only job is to answer this, because the
+whole optimisation depends on it and "MMC5 can probably do that" is not a
+measurement. Markers emitted: `111 112 113 114 255` - all four checks pass.
+
+| check | marker | result |
+| --- | --- | --- |
+| `$5114 = 5` (bit 7 clear) maps PRG-**RAM** at `$8000`, writable | 111 | yes |
+| a subroutine assembled into that RAM **executes** | 112 | yes |
+| the `$6000` window (bank 4) keeps its own contents meanwhile | 113 | yes |
+| RAM banks 4,5,6,7 at `$6000` are four **independent** 8 KB banks | 114 | yes |
+
+So the plan is legal: self-modified kernels live in RAM bank 5 mapped at
+`$8000` (the weight-stream window, which attention never reads), the KV cache
+stays in the `$6000` window, and there is a spare bank for a second cache
+layout.
