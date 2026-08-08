@@ -1254,3 +1254,42 @@ clearly worse at both context lengths.
 **The tau finding carries over unchanged: 0.75 is the best arm that fits, and
 it still lands just inside the ROM's capacity** (54,743 of 57,232 index bytes,
 2,489 to spare - at `T = 20` it was 55,711 with 1,521 to spare).
+
+## The decisive table: loss at MATCHED positions
+
+Every model above can be asked exactly the same question - "predict token 15
+given tokens 0..14" - and all of them have the full context for it. So the
+per-position curves can be laid side by side, and the confound of the
+averaging window disappears entirely. All four arms, 12,000 steps, tau 0.75,
+identical everything except `T` (`out/PERPOS_T*.txt`):
+
+**nats per token, by position band, lower is better**
+
+| positions | T = 10 | T = 20 | T = 40 | T = 85 |
+|---|---|---|---|---|
+| 0-4 | 2.4054 | **2.4241** | 2.4994 | 2.5819 |
+| 5-9 | 2.2188 | **2.1332** | 2.2064 | 2.3052 |
+| 10-19 | - | **2.1677** | 2.1807 | 2.2828 |
+| 20-39 | - | - | **2.1974** | 2.2648 |
+| 40-59 | - | - | - | 2.2634 |
+| 60-84 | - | - | - | 2.2788 |
+
+Two things fall out of it and they answer the question.
+
+**1. The `T = 20` model is the best model at every band it can be compared on.**
+At positions 5-9 it beats `T = 40` by 0.073 nats/token and `T = 85` by 0.172.
+At positions 10-19 it beats `T = 85` by 0.115. These are positions where all
+three models see identical inputs. The longer-context models are worse at the
+task they share, which is what spending a fixed 102,400 weights on a bigger
+positional table and a wider attention pattern looks like.
+
+**2. Inside each long-context model, the extra context is not paying.** The
+`T = 40` model is *worse* at positions 20-39 (2.1974) than at 10-19 (2.1807).
+The `T = 85` model is 2.2828 at 10-19 and 2.2788 at 60-84 - **0.18% better with
+four times the context**. The curve is flat from about position 10, i.e. from
+about **fifteen characters**, in every model that has the room to show it.
+
+The earlier "3.95% improvement from positions 20+" and the matching 3.06% for
+`T = 40` are entirely the first five positions dragging the 0-19 average up.
+Positions 0-4 are hard because they have no context, in every model, and no
+amount of window fixes that.
