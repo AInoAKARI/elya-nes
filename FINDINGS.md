@@ -2676,3 +2676,67 @@ edit.
 
 Paying 84 cycles to delete a special case was judged worth it. It is recorded
 as a cost, not a saving.
+
+## 5. The identical-experts control: the mixture costs 448 cycles a token
+
+Before any trained mixture existed, `train/replicate_experts.py` builds an
+npz whose N experts hold **the same weights** as the dense baseline, routed by
+`tok % 4` so the bank actually changes between consecutive tokens. Such a
+cartridge streams different banks, walks the extra region boundaries and does
+a router lookup per token, but must generate exactly what the dense cartridge
+generates.
+
+```
+tokens (host, 4 identical experts):
+  [1, 8, 6, 26, 5, 17, 8, 59, 3, 18, 27, 38, 36, 43, 18, 38, 14, 26, 51, 15]
+tokens (host, dense baseline):
+  [1, 8, 6, 26, 5, 17, 8, 59, 3, 18, 27, 38, 36, 43, 18, 38, 14, 26, 51, 15]
+ROM: TOKENS MATCHING: 19/19 -> EXACT
+image: 319,504 bytes, 38 banks, 31 of them stream
+```
+
+### Structural cost, measured per switch and counted per token
+
+BANKPROF on the mixture cartridge:
+
+```
+bank switches per token   13 13 13 13 ...      (dense: 7)
+bank-switch body          73 cycles, 247/247 samples identical
+bank switching is         949.0 cycles/token = 0.0850% of a token
+```
+
+73 cycles against the increment form's 71, exactly the +2 the extra
+`iny`/`lda (hptr),y`/`sta wbank` predicted.
+
+| | dense | 4-expert mixture |
+| --- | ---: | ---: |
+| bank switches / token | 7 | 13 |
+| cost of switching | 511 | 949 |
+| router (`ldx`/`lda`/`sta`) | 0 | 10 |
+| **structural total** | **511** | **959** |
+
+**The mixture's structural overhead is 448 cycles a token, 0.040%.** Six extra
+region boundaries - into an expert's banks and back, once per layer - at 73
+cycles, plus a ten-cycle router.
+
+### End to end the number is smaller than the noise from code placement
+
+| build | cycles/token | tokens |
+| --- | ---: | --- |
+| dense, increment sentinel | 1,116,979 | 19/19 EXACT |
+| dense, absolute sentinel | 1,117,063 | 19/19 EXACT |
+| 4 identical experts, absolute sentinel | **1,116,592** | **19/19 EXACT** |
+
+The mixture measures **471 cycles cheaper** than the dense build it is
+arithmetically identical to, where the switch count says it should be 448
+dearer. Both statements are true and neither is noise in the measurement: the
+cycle counts are exact integers from the write tap. What moved is where the
+code sits. Adding the router put eight bytes into the fixed bank ahead of
+~3,200 bytes of code, and a branch that changes which side of a page boundary
+it lands on costs a cycle every time it is taken - in a loop that runs tens of
+thousands of times a token. This journal already records 356 cycles from a
+five-byte edit with no arithmetic change.
+
+So the honest statement is: **the mixture's cost is 448 cycles a token by
+construction and by direct per-switch measurement, and that is below the
+~1,000-cycle floor that moving code around in this ROM produces anyway.**
