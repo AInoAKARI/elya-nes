@@ -598,6 +598,13 @@ def pack(model, outdir):
     w("tbl_q3.bin", build_qtbl(W2_SHIFT))
     w("tbl_q4.bin", build_qtbl(AV_SHIFT))
     w("tbl_exp.bin", EXPTAB)
+    # The exact normaliser walks tbl_exp once per softmax computing
+    # p = floor(e * SM_TARGET / S).  e * SM_TARGET is a constant per entry, so
+    # it is precomputed here rather than shifted in the kernel: the shift was
+    # 30 of the 103 cycles an iteration cost.
+    w("tbl_e8lo.bin", [(e * SM_TARGET) & 0xFF for e in EXPTAB])
+    w("tbl_e8hi.bin", [(e * SM_TARGET) >> 8 for e in EXPTAB])
+    w("tbl_p4.bin", [(p << 4) for p in range(SM_TARGET)])
     # softmax score difference -> exp bucket, in one lookup instead of a
     # SM_SHIFT-long arithmetic shift loop.  Indexed by the LOW byte of the
     # 16-bit difference; only valid when the high byte is $FF, i.e. the
@@ -642,6 +649,12 @@ def pack(model, outdir):
         f.write("SM_KROWS = %d\n" % SM_KROWS)
         # the probability budget and everything the AV kernel derives from it
         f.write("SM_TARGET = %d\n" % SM_TARGET)
+        f.write("SM_TSHIFT = %d\n" % (SM_TARGET.bit_length() - 1))
+        f.write("EXP_N    = %d\n" % EXP_N)
+        # index of the first NONZERO exp entry.  Everything below it is zero,
+        # maps to p = 0, and does not need walking every softmax.
+        f.write("EXP_FIRST = %d\n"
+                % next(i for i, e in enumerate(EXPTAB) if e))
         f.write("PMAX     = %d\n" % PMAX)
         f.write("PVBIAS   = %d\n" % PBIAS)
         f.write("PVMAX    = %d\n" % PMUL_MAX)

@@ -290,6 +290,14 @@ nbH:     .res 1              ; loop can seed the accumulator instead of
                              ; subtracting afterwards.  NOT sumL/sumH, which
                              ; softmax overwrites between here and the AV pass
 smp:     .res 2              ; the tbl_p row for this softmax's kk
+.if SM_EXACTNORM
+accL:    .res 1              ; exact normaliser: the 16-bit threshold (p+1)*S
+accH:    .res 1
+e8L:     .res 1              ; e * SM_TARGET, 16 bit
+e8H:     .res 1
+pcur:    .res 1              ; the probability being assigned
+ei:      .res 1              ; index into tbl_exp
+.endif
 .ifdef ATTNBENCH
 mulp:    .res 2              ; the no-SMC multiply-row pointer, bench only, and
 .endif                       ; conditional so the bench cannot move any other
@@ -310,6 +318,15 @@ bnkc:    .res 1              ; PRG-RAM bank counter, reset only
 res_tokens: .res 96
 res_ntok:   .res 1
 P4HI:       .res NCTX       ; quantised softmax output, one nibble per position
+.if SM_EXACTNORM
+; e -> p<<4, rebuilt once per softmax by the exact normaliser.  65 entries
+; because the exp table's largest value is 64.  In BSS rather than page 7:
+; page 7 holds SCORL/SCORH/EXPE, which are NCTX entries each and fill it at
+; NCTX = 85, and the linker cap on BSS turns an overflow here into a link
+; error rather than a silent collision with ACTB.
+PTBL:       .res 65
+    .assert (PTBL & $FF) + 64 < 256, error, "PTBL,y would cross a page"
+.endif
     .assert NTOKGEN <= 96, error, "res_tokens too small for NTOKGEN"
     .assert (P4HI & $FF) + NCTX - 1 < 256, error, "P4HI,y would cross a page"
 
@@ -377,6 +394,11 @@ tbl_blkcnt: .incbin "out/model/tbl_blkcnt.bin"
     .align $100
 tbl_step:   .incbin "out/model/tbl_step.bin"
 tbl_exp:    .incbin "out/model/tbl_exp.bin"
+.if SM_EXACTNORM
+tbl_e8lo:   .incbin "out/model/tbl_e8lo.bin"   ; e * SM_TARGET, 16 bit
+tbl_e8hi:   .incbin "out/model/tbl_e8hi.bin"
+tbl_p4:     .incbin "out/model/tbl_p4.bin"     ; p -> p<<4
+.endif
 
 .segment "PVTABLE"
 ; The AV product table.  Separate from tbl_mul because AV's high nibble is an
@@ -387,10 +409,9 @@ tbl_exp:    .incbin "out/model/tbl_exp.bin"
 tbl_pv:     .incbin "out/model/tbl_pv.bin"
     .assert PBLOCK * PVMAX <= 255, error, "AV block would set carry"
     .assert PMAX <= 15, error, "a probability nibble no longer fits p<<4"
-    ; The kernel implements the power-of-two (shared exponent) normaliser only.
-    ; host/ref.py can also do an exact one; if the packer emitted that, the ROM
-    ; would silently compute something else, so refuse to assemble instead.
-    .assert SM_EXACTNORM = 0, error, "ROM has no exact-normalisation softmax"
+    ; Both normalisers are implemented; SM_EXACTNORM selects which, and it
+    ; comes from the same generated include the packer wrote, so the kernel
+    ; and the specification cannot disagree about it.
 
 ; The softmax tables live in the $A000 bank, which is mapped throughout
 ; softmax; the $C000 table bank has no room left.
@@ -544,7 +565,8 @@ reset:
     tax
 @clr:
     sta $0000,x
-    sta $0200,x
+    sta $0200,x             ; also clears PTBL, whose e = 0 entry is 0 for
+                            ; every S and is therefore never rewritten
     sta $0400,x
     sta $0500,x
     sta $0600,x
@@ -2384,6 +2406,79 @@ softmax:
     beq @e
     bcc @e
 
+.if SM_EXACTNORM
+    ; ---- exact normalisation ---------------------------------------------
+    ; p_t = min(e_t * SM_TARGET / S, PMAX), with S = sum(e) intact.
+    ;
+    ; The shipped normaliser is a SHARED EXPONENT: kk is the smallest shift
+    ; with S>>kk <= SM_TARGET, so the realised sum lands anywhere in
+    ; (SM_TARGET/2, SM_TARGET] and a quarter of the time the softmax runs on
+    ; half its budget.  Measured, removing that waste is worth 0.0111
+    ; nats/char - more than widening the nibble bought, which was nothing.
+    ;
+    ; e takes only the EXP_N values in tbl_exp and they ASCEND, so p ascends
+    ; with them.  Walk the table once, advancing a 16-bit threshold
+    ; accumulator (p+1)*S, and write p<<4 into a 65-entry RAM map indexed by
+    ; e.  EXP_N outer steps and at most PMAX inner ones, ONCE per softmax;
+    ; the per-position loop then costs one absolute,y load, which is a cycle
+    ; CHEAPER than the (smp),y it replaces.
+    lda sumL
+    sta accL
+    lda sumH
+    sta accH
+    lda #0
+    sta pcur
+    ; entries below EXP_FIRST are all zero and all map to p = 0, so the walk
+    ; starts past them; PTBL[0] is set once at reset and never changes.
+    ldx #EXP_FIRST
+@ex:
+    lda tbl_e8lo,x              ; e8 = e * SM_TARGET, precomputed
+    sta e8L
+    lda tbl_e8hi,x
+    sta e8H
+@exw:
+    lda pcur
+    cmp #PMAX
+    bcs @exs                    ; already at the clamp
+    lda e8L                     ; 16-bit unsigned: is e8 >= (p+1)*S ?
+    cmp accL
+    lda e8H
+    sbc accH
+    bcc @exs
+    inc pcur
+    clc
+    lda accL
+    adc sumL
+    sta accL
+    lda accH
+    adc sumH
+    sta accH
+    jmp @exw
+@exs:
+    ldy pcur
+    lda tbl_p4,y                ; the AV chain wants the row's low byte,
+    ldy tbl_exp,x               ; which IS p<<4
+    sta PTBL,y
+    inx
+    cpx #EXP_N
+    bcc @ex
+
+    lda #0
+    sta tcnt
+@p:
+    ldy tcnt
+    lda EXPE,y
+    tay
+    lda PTBL,y
+    ldy tcnt
+    sta P4HI,y
+    inc tcnt
+    lda tcnt
+    cmp curpos
+    beq @p
+    bcc @p
+    rts
+.else
     ; kk = smallest k with (S >> k) <= SM_TARGET
     lda #0
     sta kk
@@ -2435,6 +2530,7 @@ smrowhi:
     .byte >(tbl_p + k * SM_PROW)
 .endrepeat
     .assert <smp <> $FF, error, "smp must not straddle a zero page wrap"
+.endif
 
 ; ===========================================================================
 ; output head: NVOCAB raw rows, argmax with ties going to the lowest index
