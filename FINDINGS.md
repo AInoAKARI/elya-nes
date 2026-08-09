@@ -2783,3 +2783,43 @@ resume offset.
 Same work, same rate. The mixture streams 52,207 index bytes a token out of
 127,396 on the cartridge, which is the sentence this whole design exists to
 make true.
+
+## 6. The loss: experts buy what context did not
+
+Recipe held fixed at the one the baseline used - bpe64, `tau 0.75`,
+`AV_SHIFT 2`, batch 192, `lr 3e-3`, `T = 20`. Only the expert count and the
+routing table move. `train/moe_table.py`.
+
+### Sizing sweep, 12,000 steps, seed 1
+
+| arm | N | route | val nats/token | **val nats/char** | weights on cart |
+| --- | ---: | --- | ---: | ---: | ---: |
+| dense | 1 | - | 2.2218 | **1.5283** | 102,400 |
+| mixture | 2 | bal | 2.1723 | **1.4943** | 151,552 |
+| mixture | 4 | bal | 2.0912 | **1.4385** | 249,856 |
+| mixture | 4 | clus | 2.0865 | **1.4353** | 249,856 |
+| **mixture** | **8** | **bal** | **2.0046** | **1.3789** | **446,464** |
+
+Monotone in N, and the gaps are 4 to 6 times the 0.009 nats/char seed noise
+this project measured earlier. **The 8-expert mixture at 12,000 steps
+(1.3789) already beats the dense model at 60,000 steps (1.4133/1.4149)** -
+one fifth of the training, and 0.034 nats/char better than the number the
+context work could not move.
+
+For scale: quadrupling the context from 20 to 85 made the model **0.019
+nats/char worse**. Doubling the parameters on the cartridge, at identical
+per-token compute, makes it **0.034 nats/char better**, and going to eight
+experts makes it **0.149**.
+
+### The router's construction does not matter; its balance might
+
+`clus` - balanced k-means on the rows of `P(next | tok)`, so tokens that
+predict the same continuations share an expert - beats plain frequency
+balance by **0.0032 nats/char**. That is a third of the measured seed noise,
+which is to say it is nothing.
+
+That is a negative worth stating plainly: **trying to make the experts
+specialise semantically bought nothing over simply keeping them equally
+busy.** It is also the result that makes the cheap router defensible - if the
+elaborate table is no better than the trivial one, the argument that a learned
+projection would have been better than either is running out of room.
