@@ -10,3 +10,4 @@ runs/*_ckpt.json
 out/sv.nes
 out/sv.o
 out/*.ldlog
+train/.smx_run.sh
