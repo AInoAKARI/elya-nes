@@ -2,9 +2,11 @@
  "info": {
   "rows": 1408,
   "nnz": 52207,
-  "weights": 102400,
-  "stream_bytes": 57344,
-  "header_bytes": 5656,
+  "weights_per_token": 102400,
+  "weights_on_cart": 102400,
+  "nexp": 1,
+  "stream_banks": 7,
+  "header_bytes": 5660,
   "banks": 7,
   "bank_crossings_per_token": 6,
   "tokens": [
