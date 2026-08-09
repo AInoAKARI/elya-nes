@@ -1,13 +1,13 @@
 rows                         1408
-nnz                          52207
+nnz                          137614
 weights_per_token            102400
-weights_on_cart              102400
-nexp                         1
-stream_banks                 7
-header_bytes                 5660
-banks                        7
-bank_crossings_per_token     6
-tokens                       [1, 8, 6, 26, 5, 17, 8, 59, 3, 18, 27, 38, 36, 43, 18, 38, 14, 26, 51, 15]
+weights_on_cart              249856
+nexp                         4
+stream_banks                 31
+header_bytes                 5684
+banks                        31
+bank_crossings_per_token     13
+tokens                       [1, 14, 14, 26, 7, 8, 11, 14, 17, 4, 18, 0, 13, 26, 22, 26, 5, 14, 26, 5]
 ntok                         19
-weights_npz                  runs/final_av2_bpe64_tau0.75.npz
+weights_npz                  /tmp/smoke/_smoke_moe4.npz
 seed_tok                     1
