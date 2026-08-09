@@ -1,0 +1,39 @@
+T = 20   heads logged = 456   (seeds 1,26,40,58, 19 steps each)
+
+-- claim: sum_t p_t <= 8, p_t integer in 0..7 --
+softmax evaluations      456
+max observed sum_t p_t   7
+max observed p_t         7
+evaluations over budget  0
+evaluations over clamp   0
+sum_t p_t histogram:
+   sum = 3         6    1.3%
+   sum = 4        13    2.9%
+   sum = 5        45    9.9%
+   sum = 6       116   25.4%
+   sum = 7       276   60.5%
+
+-- claim: only 1.14-1.75 positions carry any weight --
+layer  nonzero   eff(quant) eff(float)  nonzero_f   avail    
+0      1.66      1.51      2.39        1.78        10.00    
+1      1.31      1.24      1.77        1.39        10.00    
+2      1.69      1.56      3.08        1.80        10.00    
+all    1.55      1.44      2.41        1.66        10.00    
+
+nonzero    = positions with a nonzero 4-bit nibble (the kernel)
+eff(quant) = exp(entropy) of the quantised nibbles
+eff(float) = exp(entropy) of exp(score/16) on the SAME scores
+nonzero_f  = float positions holding >= 1/8 of the mass
+avail      = positions the causal mask allows (p+1)
+
+-- AV accumulator (AV_SHIFT = 2, PMUL_SHIFT = 2) --
+samples        3648
+range          -13 .. 12
+mean / std     2.600 / 7.809
+saturating     0  (0.00%)  outside [-28, 31]
+output levels  8 of 15 reachable
+
+-- AV multiply-adds --
+softmax positions total      4560
+with a nonzero probability   709  (15.55%)
+multiplying by zero          3851  (84.45%)

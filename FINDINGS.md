@@ -2874,3 +2874,78 @@ For scale, against the other numbers in this journal:
 It is worth about *half* of what ternarising the weights costs, and it is the
 opposite sign to the context experiment - which spent +52% of a token's
 cycles to lose 0.0214 nats/char, where this spends +0.4% to gain 0.0239.
+
+## The cartridge: exact, and what it costs
+
+`runs/smxfinal_t8_sh3_exact_s1.npz` packed and built with `SM_EXACTNORM = 1`:
+
+| gate | result |
+| --- | ---: |
+| `max\|dW\|` over 102,400 ternary weights | **0** |
+| embedding / positional tables | **max\|d\| = 0** |
+| ROM == host, seed token 1 | **19 / 19 EXACT** |
+| ROM == host, 16-seed early survey (pow2-trained weights) | **16 / 16, 304 / 304 tokens** |
+| density / nnz | 0.5086 / 52,084 - fits the 7-bank window |
+
+### Cycles
+
+| | shipped | exact | delta |
+| --- | ---: | ---: | ---: |
+| **mean cycles / token** | **1,116,979** | **1,121,121** | **+4,142 (+0.37%)** |
+| seconds / token @ 1.79 MHz | 0.624 | **0.626** | +0.002 |
+| pos 18: softmax | 19,462 | 23,482 | +4,020 |
+| pos 18: AV kernel | 9,444 | 10,220 | +776 |
+| pos 18: QK kernel | 39,986 | 40,054 | +68 |
+| pos 18: token total | 1,155,700 | 1,159,846 | +4,146 |
+
+**One caveat on that comparison, stated rather than buried:** these are two
+different trained models, and cycles/token depends on the model through both
+the ternary gather (nnz) and the AV chain (live positions). The exact model
+has 52,084 nonzero weights against the shipped model's 52,203 - **119 fewer**,
+worth roughly 1,200 cycles of gather it does *not* pay. So the softmax-and-AV
+cost is if anything slightly larger than +4,142, and the +4,142 is the number
+a user actually experiences. The same-model comparison on the random-init
+cartridge, where nnz is identical by construction, is +0.40%.
+
+### Effect on AV sparsity - the interaction the brief flagged
+
+| | shipped (pow2) | trained exact | delta |
+| --- | ---: | ---: | ---: |
+| live positions per head, all layers | 1.25 | **1.55** | +24% |
+| live positions, layer 2 | 1.14 | **1.69** | +48% |
+| eff(quant), all layers | 1.20 | **1.44** | +20% |
+| **AV multiply-adds hitting a zero** | **87.54%** | **84.45%** | **-3.1 pts** |
+| AV kernel cycles, pos 18 | 9,444 | 10,220 | **+8.2%** |
+| AV accumulator range | -14..14 | -13..12 | - |
+| AV accumulator saturation | 0.00% | **0.00%** | - |
+| AV output levels used | 8 of 15 | **8 of 15** | - |
+
+**The sparsity did not collapse.** It was 87.5% zeros and is 84.5% zeros; the
+AV kernel pays 8.2% more for it, which is 776 cycles in a 1.16-million-cycle
+token. The feared interaction - "you may destroy the sparsity that is worth
+93% of AV's units" - does not happen, because the exact normaliser does not
+hand out *more* probability, it hands out the *same* budget more evenly, and
+the number of positions that can be nonzero is still at most 8.
+
+`AV_SHIFT = 2` carries unchanged: still 0.00% saturation, still 8 of 15
+output levels reachable, accumulator range -13..12 against -14..14. The
+measured optimum did not have to be re-laddered, and now that is measured
+rather than assumed.
+
+### What the normaliser actually did to the distribution
+
+The realised `sum_t p_t`, on 456 softmax evaluations of a trained model:
+
+| sum | shipped (pow2) | trained exact |
+| ---: | ---: | ---: |
+| 2 | 0.4% | - |
+| 3 | 1.3% | 1.3% |
+| **4** | **25.4%** | **2.9%** |
+| 5 | 8.1% | 9.9% |
+| 6 | 6.1% | **25.4%** |
+| 7 | 57.7% | **60.5%** |
+| 8 | 0.9% | - |
+
+The quarter of evaluations that were running on a budget of 4 are now running
+on 6. That is the entire mechanism, and it is visible directly in the
+histogram rather than inferred from the loss.
