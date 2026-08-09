@@ -8,3 +8,12 @@ sw_n2bal_s1                  step  2500  fit 2.5122  val 2.5187  density 0.5449 
 sw_n2bal_s1                  step  3000  fit 2.4529  val 2.4714  density 0.5433  316s
 sw_n2bal_s1                  step  3500  fit 2.4349  val 2.4541  density 0.5434  370s
 sw_n2bal_s1                  step  4000  fit 2.4347  val 2.4232  density 0.5430  424s
+sw_n2bal_s1                  step  4500  fit 2.3924  val 2.3926  density 0.5419  477s
+sw_n2bal_s1                  step  5000  fit 2.3648  val 2.3635  density 0.5420  530s
+sw_n2bal_s1                  step  5500  fit 2.3390  val 2.3470  density 0.5404  583s
+sw_n2bal_s1                  step  6000  fit 2.3498  val 2.3481  density 0.5400  636s
+sw_n2bal_s1                  step  6500  fit 2.3308  val 2.3475  density 0.5392  684s
+sw_n2bal_s1                  step  7000  fit 2.3162  val 2.3281  density 0.5386  738s
+sw_n2bal_s1                  step  7500  fit 2.3036  val 2.3151  density 0.5381  786s
+sw_n2bal_s1                  step  8000  fit 2.2861  val 2.2955  density 0.5385  838s
+sw_n2bal_s1                  step  8500  fit 2.2836  val 2.2885  density 0.5377  891s

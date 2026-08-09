@@ -80,7 +80,7 @@ def main():
         print("  --> ternary kernel: %.2f cycles per MAC (nnz = %d)"
               % (g / float(nnz), nnz))
         print("  --> ternary kernel: %.2f cycles per WEIGHT (%d weights)"
-              % (g / float(info["weights"]), info["weights"]))
+              % (g / float(info["weights_per_token"]), info["weights_per_token"]))
     return 0
 
 
