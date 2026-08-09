@@ -4,3 +4,6 @@ launch ctx_T20_exact_s1
 launch ctx_T20_exact_s2
 launch ctx_T85_pow2_s1
 launch ctx_T85_pow2_s2
+launch ctx_T85_exact_s1
+launch ctx_T85_exact_s2
+context ladder complete

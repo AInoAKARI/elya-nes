@@ -1,0 +1,12 @@
+       pow2 (shipped)           exact                   
+T      seed1    seed2    mean    seed1    seed2    mean   
+20     1.5275   1.5283   1.5279  1.5157   1.5179   1.5168 
+85     1.5737   1.5765   1.5751  1.5651   1.5660   1.5655 
+
+pow2   T=85 minus T=20: +0.0472 nats/char  (longer context HURTS)
+exact  T=85 minus T=20: +0.0487 nats/char  (longer context HURTS)
+
+the gap moved by +0.0015 nats/char
+(negative = fixing the softmax made longer context relatively better; it has to CROSS ZERO for longer context to be worth it)
+
+nats per character, held out, lower is better. 12,000 steps.

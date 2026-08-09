@@ -3,3 +3,24 @@ ctx_T85_pow2_s1              step   500  fit 3.0624  val 3.0586  density 0.5483 
 ctx_T85_pow2_s1              step  1000  fit 2.9537  val 2.9567  density 0.5472  366s
 ctx_T85_pow2_s1              step  1500  fit 2.8752  val 2.8678  density 0.5456  541s
 ctx_T85_pow2_s1              step  2000  fit 2.7821  val 2.7916  density 0.5454  715s
+ctx_T85_pow2_s1              step  2500  fit 2.7224  val 2.7168  density 0.5431  889s
+ctx_T85_pow2_s1              step  3000  fit 2.6380  val 2.6426  density 0.5412  1001s
+ctx_T85_pow2_s1              step  3500  fit 2.6356  val 2.6297  density 0.5389  1125s
+ctx_T85_pow2_s1              step  4000  fit 2.5574  val 2.5651  density 0.5384  1231s
+ctx_T85_pow2_s1              step  4500  fit 2.5680  val 2.5643  density 0.5380  1337s
+ctx_T85_pow2_s1              step  5000  fit 2.5214  val 2.5192  density 0.5376  1443s
+ctx_T85_pow2_s1              step  5500  fit 2.5267  val 2.5242  density 0.5375  1550s
+ctx_T85_pow2_s1              step  6000  fit 2.5083  val 2.5113  density 0.5353  1656s
+ctx_T85_pow2_s1              step  6500  fit 2.4942  val 2.4942  density 0.5350  1761s
+ctx_T85_pow2_s1              step  7000  fit 2.4893  val 2.4908  density 0.5351  1898s
+ctx_T85_pow2_s1              step  7500  fit 2.4473  val 2.4613  density 0.5347  2073s
+ctx_T85_pow2_s1              step  8000  fit 2.4583  val 2.4642  density 0.5332  2248s
+ctx_T85_pow2_s1              step  8500  fit 2.4638  val 2.4602  density 0.5335  2423s
+ctx_T85_pow2_s1              step  9000  fit 2.4641  val 2.4632  density 0.5329  2598s
+ctx_T85_pow2_s1              step  9500  fit 2.4711  val 2.4697  density 0.5332  2772s
+ctx_T85_pow2_s1              step 10000  fit 2.4042  val 2.4201  density 0.5334  2947s
+ctx_T85_pow2_s1              step 10500  fit 2.4206  val 2.4233  density 0.5327  3122s
+ctx_T85_pow2_s1              step 11000  fit 2.4631  val 2.4573  density 0.5330  3296s
+ctx_T85_pow2_s1              step 11500  fit 2.4363  val 2.4296  density 0.5331  3471s
+ctx_T85_pow2_s1              step 12000  fit 2.2910  val 2.3006  density 0.5346  3646s
+FINAL ctx_T85_pow2_s1          fit 2.2892  val 2.2919  (uniform 4.1589)  nnz 54743/102400 = 0.5346

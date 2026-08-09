@@ -3007,3 +3007,60 @@ one than `'big friends. she was so hap'`. **Three strings prove nothing** -
 the loss numbers are the evidence and they are two seeds each at 60,000 steps.
 This is recorded because the previous experiment quoted its text, and quoting
 only the flattering half would be worse than quoting none.
+
+# THE REAL QUESTION: does fixing the softmax make longer context help? NO.
+
+Four cells, two seeds each, 12,000 steps, everything else matched:
+`{T = 20, T = 85} x {power-of-two, exact}`. `out/SMX_CTX.txt`:
+
+| T | pow2 s1 | pow2 s2 | **pow2 mean** | exact s1 | exact s2 | **exact mean** |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 20 | 1.5275 | 1.5283 | **1.5279** | 1.5157 | 1.5179 | **1.5168** |
+| 85 | 1.5737 | 1.5765 | **1.5751** | 1.5651 | 1.5660 | **1.5655** |
+
+```
+pow2    T = 85 minus T = 20:  +0.0472    longer context HURTS
+exact   T = 85 minus T = 20:  +0.0487    longer context HURTS
+
+the gap moved by            +0.0015     i.e. very slightly the WRONG WAY
+```
+
+**The controls reproduce.** `T = 20` pow2 at 1.5279 against the context
+journal's 1.5292, and `T = 85` pow2 at 1.5751 against its 1.5775 - both
+within 0.0024, on a different tree and a different seed set.
+
+## The answer
+
+**No.** Fixing the softmax's normaliser is worth 0.0111 nats/char at `T = 20`
+and 0.0096 at `T = 85`, which is the *same* benefit at both context lengths.
+It does not differentially help the long-context model at all. The
+`T = 85`-minus-`T = 20` penalty is +0.0472 before and +0.0487 after, and
+0.0015 is well inside the seed spreads (0.0008 to 0.0028 in this table).
+
+The two effects are **independent**. That is the cleanest possible refutation
+of the hypothesis this whole piece of work was built on, which was:
+
+> "the `sum <= 8` integer softmax has to be fixed first - it is what stops the
+> long-range head the model DID learn from paying for itself."
+
+The softmax has now been fixed - measurably, at 60,000 steps, two seeds,
+non-overlapping - and the long-range head still does not pay for itself. The
+softmax was not what was stopping it.
+
+## What that leaves
+
+The context journal's own verdict, which this work was trying to overturn,
+survives intact: **the ceiling is capacity.** Three 64-wide layers and 102,400
+ternary weights is what limits this model, and a longer window does not help
+whatever the softmax does. What changed is that the softmax's *own*
+contribution has been separated out and collected: it is worth 0.0239
+nats/char at 60,000 steps, at both context lengths, for +0.37% cycles.
+
+Two things were learned that were not on anyone's list:
+
+1. **The bit width of the probability was never the problem.** 3 bits, 4 bits
+   and 5 bits measure the same. The diagnosis "a 4-bit probability nibble
+   cannot represent a distribution over 85 things" is true as arithmetic and
+   false as a limit.
+2. **The shared exponent was the problem**, and it was on the brief's list as
+   an *option to add* rather than as the thing already there and costing.
