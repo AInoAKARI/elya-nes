@@ -401,3 +401,81 @@ than around it.
 The bar is a **bit-exact match of every generated token id over 16+ tokens**,
 not a 3-token spot check - a 3-token check passed two genuinely broken changes
 elsewhere in this project and only failed at positions 5 and 12.
+
+## 6. The softmax probability budget (added when the integer softmax was revisited)
+
+Section 5 ends with what the quantised softmax can express: `sum_t p_t <= 8`
+with every `p_t` an integer in `0..7`, so at most 8 of the `T` positions can
+carry any weight. That is stated there as a *property*. This section is the
+design for making it a *parameter*, written before the kernel changed.
+
+### The family
+
+`SM_TARGET` is the sum the normaliser targets and `PMAX = SM_TARGET - 1` the
+per-position clamp. The attention accumulator is
+
+```
+acc = sum_t floor(p_t * v_t / 2^PMUL_SHIFT)
+      with  sum_t p_t <= SM_TARGET  and  |v_t| <= 7
+so    |acc| <= SM_TARGET * 7 / 2^PMUL_SHIFT
+```
+
+Choosing
+
+```
+PMUL_SHIFT = 2 + log2(SM_TARGET / 8)
+```
+
+pins that bound at **14 for every member of the family**. This is the whole
+design. It means widening the probability does not move `AV_SHIFT`, does not
+move the range of the attention output, and does not move where the
+requantise table saturates - so the `AV_SHIFT` ladder that was measured at
+`SM_TARGET = 8` carries over instead of having to be re-run from scratch.
+
+It also means the product table's entries stay in the same band, so the AV
+chain's carry-free block barely moves:
+
+| SM_TARGET | PMUL_SHIFT | max table entry | carry-free block | `|acc|` bound |
+|---:|---:|---:|---:|---:|
+| **8** (shipped) | 2 | 25 | 10 | 14 |
+| **16** | 3 | 27 | **9** | 14 |
+| 32 | 4 | 27 | 9 | 14 |
+
+### Where the family stops being free
+
+A probability is stored **pre-shifted** as `p<<4`: it is the low byte of that
+probability's row in a page-aligned 256-byte product table, and `av_patch`
+writes it into the AV chain's operand with a single `sta`. That is what makes
+the AV inner loop 8 cycles instead of 9 (see the ATTNBENCH head-to-head).
+
+`SM_TARGET = 32` needs 32 rows = 512 bytes, so the row address no longer fits
+one patched byte and `av_patch` grows a second store per live unit. The
+packer refuses it. The trainer and the host reference still implement it, so
+the question "would 32 have bought anything?" can be answered without paying
+for it.
+
+### What it costs, predicted
+
+Nothing in the softmax kernel: the `kk` loop compares against `SM_TARGET + 1`
+instead of a literal 9, and `tbl_p` holds `min(e>>kk, PMAX) << 4` instead of
+`min(e>>kk, 7) << 4`. Same instructions, same table shapes.
+
+Nothing in the AV inner loop: it is the same `ldx VBASE+t*256,y ; adc
+tbl_pv,x` pair against a different 256-byte table, measured at 8.00
+cycles/MAC either way.
+
+The cost is **entirely** that more positions carry a nonzero nibble, so more
+AV chain units run - the AV chain is built from the live positions only, and
+87.5% of its potential multiply-adds are currently absent rather than zero.
+The prediction is therefore that the cost tracks the live-position count and
+nothing else, and that is what FINDINGS measures.
+
+### Where the table went
+
+`tbl_pv` could not go in the `$C000` table bank: that bank was already at
+2,063 of its 2,304 usable bytes and 256 more overflowed it by exactly 256.
+It lives in the **fixed `$E000` bank**, which is mapped at all times, so the
+PRG-RAM kernels reach it with a plain absolute `adc`. The overflow was
+initially invisible because `build.sh` piped `ld65` through `grep` and lost
+its exit status; that is fixed, and it is recorded in FINDINGS because it
+nearly produced a measurement of a stale ROM.
