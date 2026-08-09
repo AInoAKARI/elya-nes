@@ -6,3 +6,6 @@ sw_dense_s1                  step  2000  fit 2.6162  val 2.6299  density 0.5446 
 sw_dense_s1                  step  2500  fit 2.5472  val 2.5537  density 0.5450  209s
 sw_dense_s1                  step  3000  fit 2.5099  val 2.5302  density 0.5423  252s
 sw_dense_s1                  step  3500  fit 2.4752  val 2.4889  density 0.5423  295s
+sw_dense_s1                  step  4000  fit 2.4675  val 2.4541  density 0.5419  338s
+sw_dense_s1                  step  4500  fit 2.4457  val 2.4528  density 0.5412  381s
+sw_dense_s1                  step  5000  fit 2.4584  val 2.4578  density 0.5396  423s

@@ -2551,3 +2551,83 @@ The header bank's 241 bytes of slack is the tightest thing in the image and it
 matters for what follows: an expert needs its own header table, and a header
 table plus a duplicate of the lookup tables is 8,143 bytes, which fits an 8 KB
 bank with 241 bytes to spare and nothing else.
+
+## 3. The routing design, and why it is a 64-byte table
+
+### The shape: experts are the feed-forward blocks, not whole models
+
+Two shapes were considered.
+
+**Whole-model experts** - N complete copies of the 102,400-weight network,
+one selected per token - is the cheapest possible cartridge change: a
+different base bank number and nothing else. It was rejected on arithmetic,
+not on cost. The KV cache is written at position `t` by whichever expert the
+token at `t` selected and read at position `t' > t` by a different one, so
+every expert's `Wq` has to dot against every other expert's `Wk`. The experts
+would have to spend their extra capacity re-agreeing on a shared key space
+before any of it could go into modelling. Recorded as a rejected alternative
+because it is the shape the "one expert streams per token" phrasing suggests
+first.
+
+**Feed-forward experts** - `Wq/Wk/Wv/Wo`, the embedding, the positional table
+and the head are shared; `W1` and `W2` of every layer come in N copies - keeps
+one key space and is the shape the MoE literature actually uses. Per-token
+weights streamed stay at 102,400. Parameters on the cartridge become
+53,248 shared + N x 49,152.
+
+### The router: it cannot see more than (token, position), so make it a table
+
+The router has to choose before the first layer runs, because the choice picks
+which bank the stream walk reads. At that moment the only thing in the machine
+is
+
+```
+x0 = clamp(emb[curtok] + pos[curpos], -7, 7)
+```
+
+**Every router that runs there is a function of `(curtok, curpos)` and nothing
+else.** A learned linear router is one; so is a hash; so is a lookup table
+indexed by the pair. The table is the *most general* of them - it can express
+any function of the pair, including whatever the learned projection would have
+converged to - and it is also the cheapest. That is not a trade-off, so there
+is nothing to trade.
+
+The cycle costs, all against the measured 604.5 cycles/row and
+8.31 cycles/weight of `out/FINAL_PROFILE.txt` (851,108 cycles of `gather_row`
+over 1,408 rows, 102,400 weights):
+
+| router | 6502 | cycles | % of a 1,116,979-cycle token |
+| --- | --- | ---: | ---: |
+| table on `curtok` | `ldx curtok` / `lda route,x` | **6** | 0.0005% |
+| table on `(curtok, curpos)` | 16-bit index into a 64 x T table | ~15 | 0.0013% |
+| learned ternary projection, N = 4 | 4 rows x 64 inputs + argmax | ~2,130 | 0.19% |
+| learned ternary projection, N = 8 | 8 rows x 64 inputs + argmax | ~4,260 | 0.38% |
+
+The learned projection is affordable - 0.19% would not decide anything - and
+it is still the wrong choice, because it buys a strict subset of what the
+table can express for 355x the cycles and a new bit-exactness surface (the
+argmax has to agree between trainer, host reference and ROM or the cartridge
+streams a different expert from the one that was trained).
+
+A router that saw *more* than `(curtok, curpos)` would have to run after some
+layers - route layer 2's feed-forward on layer 1's output. That is a real
+design and it is not free in the same way: the expert bank cannot be selected
+until mid-token, and the "one expert streams per token" shape becomes "one
+expert per layer". Not attempted here; recorded as the one routing idea this
+argument does not cover.
+
+### Which table
+
+Four constructions, identical cartridge cost, in `train/route.py`:
+
+| kind | rule | N = 4 load (max/min) |
+| --- | --- | ---: |
+| `mod` | `e = tok % N` | 1.35 |
+| `bal` | greedy frequency balance | 1.00 |
+| `clus` | balanced k-means on the rows of `P(next \| tok)` | 1.08 |
+| `rand` | seeded random | 3.09 |
+
+`rand` is in the list as the control: it answers whether balance or clustering
+is doing anything a coin could not. bpe64 token frequencies span 5,621 to
+597,458 occurrences, so `mod` is not a neutral choice - `tok % 2` alone sends
+55.2% of the corpus to one expert.
