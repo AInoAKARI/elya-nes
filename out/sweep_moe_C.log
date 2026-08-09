@@ -170,3 +170,4 @@ moe_dense60k_s2              step 23000  fit 2.2713  val 2.2816  density 0.5167 
 moe_dense60k_s2              step 23500  fit 2.2652  val 2.2782  density 0.5163  2550s
 moe_dense60k_s2              step 24000  fit 2.2721  val 2.2823  density 0.5169  2618s
 moe_dense60k_s2              step 24500  fit 2.2857  val 2.2947  density 0.5160  2686s
+moe_dense60k_s2              step 25000  fit 2.2721  val 2.2803  density 0.5158  2754s

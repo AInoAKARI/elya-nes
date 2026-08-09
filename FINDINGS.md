@@ -2598,14 +2598,14 @@ over 1,408 rows, 102,400 weights):
 
 | router | 6502 | cycles | % of a 1,116,979-cycle token |
 | --- | --- | ---: | ---: |
-| table on `curtok` | `ldx curtok` / `lda route,x` | **6** | 0.0005% |
-| table on `(curtok, curpos)` | 16-bit index into a 64 x T table | ~15 | 0.0013% |
+| table on `curtok` | `ldx curtok` / `lda route,x` / `sta $5116` | **11 measured** | 0.0010% |
+| table on `(curtok, curpos)` | 16-bit index into a 64 x T table | ~20 | 0.0018% |
 | learned ternary projection, N = 4 | 4 rows x 64 inputs + argmax | ~2,130 | 0.19% |
 | learned ternary projection, N = 8 | 8 rows x 64 inputs + argmax | ~4,260 | 0.38% |
 
 The learned projection is affordable - 0.19% would not decide anything - and
 it is still the wrong choice, because it buys a strict subset of what the
-table can express for 355x the cycles and a new bit-exactness surface (the
+table can express for ~190x the cycles and a new bit-exactness surface (the
 argmax has to agree between trainer, host reference and ROM or the cartridge
 streams a different expert from the one that was trained).
 
@@ -2677,7 +2677,7 @@ edit.
 Paying 84 cycles to delete a special case was judged worth it. It is recorded
 as a cost, not a saving.
 
-## 5. The identical-experts control: the mixture costs 448 cycles a token
+## 5. The identical-experts control: the mixture costs 450 cycles a token
 
 Before any trained mixture existed, `train/replicate_experts.py` builds an
 npz whose N experts hold **the same weights** as the dense baseline, routed by
@@ -2747,7 +2747,7 @@ there.
 | 4 identical experts, absolute sentinel | **1,116,592** | **19/19 EXACT** |
 
 The mixture measures **471 cycles cheaper** than the dense build it is
-arithmetically identical to, where the switch count says it should be 448
+arithmetically identical to, where the switch count says it should be 450
 dearer. Both statements are true and neither is noise in the measurement: the
 cycle counts are exact integers from the write tap. What moved is where the
 code sits. Adding the router put eight bytes into the fixed bank ahead of
@@ -2756,7 +2756,7 @@ it lands on costs a cycle every time it is taken - in a loop that runs tens of
 thousands of times a token. This journal already records 356 cycles from a
 five-byte edit with no arithmetic change.
 
-So the honest statement is: **the mixture's cost is 448 cycles a token by
+So the honest statement is: **the mixture's cost is 450 cycles a token by
 construction and by direct per-switch measurement, and that is below the
 ~1,000-cycle floor that moving code around in this ROM produces anyway.**
 
