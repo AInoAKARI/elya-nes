@@ -1080,11 +1080,13 @@ forward:
 .ifdef MOE
     ; The router.  One indexed load says which header bank this token's expert
     ; keeps its table in; the header table then names every stream bank the
-    ; walk needs, expert banks included.  Six cycles for the lookup, seven to
-    ; map the bank.
+    ; walk needs, expert banks included.  Bracketed by the same markers the
+    ; bank switch uses so the cost is measured, not counted.
+    BMARK 60
     ldx curtok
     lda routebank,x
     sta MMC5_PRGC000
+    BMARK 61
 .endif
     lda #0
     sta wbank

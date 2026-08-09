@@ -2708,16 +2708,35 @@ bank switching is         949.0 cycles/token = 0.0850% of a token
 73 cycles against the increment form's 71, exactly the +2 the extra
 `iny`/`lda (hptr),y`/`sta wbank` predicted.
 
-| | dense | 4-expert mixture |
+| | dense | mixture |
 | --- | ---: | ---: |
 | bank switches / token | 7 | 13 |
-| cost of switching | 511 | 949 |
-| router (`ldx`/`lda`/`sta`) | 0 | 10 |
-| **structural total** | **511** | **959** |
+| cost of switching, measured | 511.0 | 950.3 |
+| router, measured (19/19 samples at 11) | 0 | 11 |
+| **structural total** | **511** | **961** |
 
-**The mixture's structural overhead is 448 cycles a token, 0.040%.** Six extra
+**The mixture's structural overhead is 450 cycles a token, 0.040%.** Six extra
 region boundaries - into an expert's banks and back, once per layer - at 73
-cycles, plus a ten-cycle router.
+cycles, plus an 11-cycle router.
+
+Both numbers are marker-bracketed in situ, not counted:
+
+```
+dense    bank-switch body   73 cycles, 133/133 samples identical
+mixture  bank-switch body   73 cycles x 241,  77 cycles x 6     (mean 73.10)
+mixture  router body        11 cycles, 19/19 samples identical
+```
+
+Two things this measurement corrected. **The router is 11 cycles, not the 10
+this journal first wrote**: `curtok` is in zero page, so `ldx curtok` is 3
+cycles and not the 2 an immediate load would have been. **And six of the
+mixture's 247 switches cost 77 rather than 73**, which is not noise and is
+fully accounted for: `hdr_advance` ends `bne @done`, and when the header
+pointer's low byte rolls over inside a switch the branch falls through to
+`inc hptr+1` instead - 2 + 5 against 3, i.e. +4. The header table is 5,684
+bytes, so it crosses ~22 pages a token; six of those crossings land inside a
+sentinel. The dense table crosses ~22 as well and none of its 133 landed
+there.
 
 ### End to end the number is smaller than the noise from code placement
 

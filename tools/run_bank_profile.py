@@ -31,6 +31,7 @@ def main():
     per_tok = []          # list of [switch_cycles...] per token
     tot = []
     cur, tstart, open_at = None, None, None
+    router, router_at = [], []
     for v, t in ev:
         if v == 1:
             cur = []
@@ -44,6 +45,10 @@ def main():
         elif v == 51 and cur is not None and open_at is not None:
             cur.append(cycles(t - open_at))
             open_at = None
+        elif v == 60 and cur is not None:
+            router_at.append(t)
+        elif v == 61 and cur is not None and router_at:
+            router.append(cycles(t - router_at.pop()))
 
     all_sw = [c for tk in per_tok for c in tk]
     n = len(all_sw)
@@ -65,6 +70,12 @@ def main():
         hist[c] = hist.get(c, 0) + 1
     print("  histogram           %s"
           % "  ".join("%d:%d" % (k, hist[k]) for k in sorted(hist)))
+
+    if router:
+        rb = [c - MARK_COST for c in router]
+        print("\nrouter body, marker 60 -> 61, %d samples" % len(router))
+        print("  minus one BMARK     min %d  max %d  mean %.2f cycles"
+              % (min(rb), max(rb), sum(rb) / float(len(rb))))
 
     sw_per_tok = n / float(len(tot))
     mean_tok = sum(tot) / float(len(tot))

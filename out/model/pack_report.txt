@@ -1,14 +1,14 @@
 rows                         1408
-nnz                          242792
-nnz_per_token                [55123, 55060, 55106, 55102, 55005, 55187, 55133, 55211]
+nnz                          52207
+nnz_per_token                52207
 weights_per_token            102400
-weights_on_cart              446464
-nexp                         8
-stream_banks                 55
-header_bytes                 5684
-banks                        55
-bank_crossings_per_token     13
-tokens                       [1, 20, 19, 34, 39, 12, 26, 22, 59, 41, 1, 0, 2, 10, 26, 22, 54, 7, 26, 57]
+weights_on_cart              102400
+nexp                         1
+stream_banks                 7
+header_bytes                 5660
+banks                        7
+bank_crossings_per_token     6
+tokens                       [1, 8, 6, 26, 5, 17, 8, 59, 3, 18, 27, 38, 36, 43, 18, 38, 14, 26, 51, 15]
 ntok                         19
-weights_npz                  runs/sw_n8bal_s1.npz
+weights_npz                  runs/final_av2_bpe64_tau0.75.npz
 seed_tok                     1
