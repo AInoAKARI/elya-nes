@@ -2611,3 +2611,72 @@ instead of 9, and `tbl_p` holds `min(e>>kk, 15) << 4` instead of
 does not change either. The **only** cost is that more positions carry a
 nonzero nibble, so more AV chain units run - and that is exactly the 87.54% /
 96.29% zero-multiply figure measured above, being spent.
+
+## The kernel, built and verified at both budgets
+
+`SM_TARGET`, `PMAX`, `PVBIAS`, `PVMAX` and `PBLOCK` are generated into
+`out/model/shifts.inc` by `host/ref.py` and consumed by `rom/nn.s`, the same
+mechanism the requantise shifts use, so the kernel and the specification
+cannot hold different values. Both attention paths changed: the fast
+self-modified chain and the legacy long-context one.
+
+`tbl_pv` could not go in the `$C000` table bank - that bank was already at
+2,063 of its 2,304 usable bytes and 256 more overflowed it by exactly 256.
+It lives in the fixed `$E000` bank, which is mapped at all times.
+
+### The build system was hiding the overflow
+
+`ld65` reported the overflow. `build.sh` piped it through `grep`, which
+returns 0, `set -e` saw success, the **previous** `nn.nes` stayed on disk, and
+`md5sum` then cheerfully reported the ROM images "unchanged" - which is
+exactly the answer a working refactor would have produced. The next step
+would have been to measure a stale ROM and write the number down.
+
+Fixed: `build()` captures `ld65`'s exit status before the pipe and aborts.
+Recorded rather than quietly patched, because this is the third variant of
+the same failure in this repo (silent BSS collision, silent bank-boundary
+pad, silent link error) and the pattern is worth naming: **a check that runs
+downstream of a swallowed error measures the last thing that worked.**
+
+### Exactness
+
+| build | result |
+| --- | ---: |
+| `SM_TARGET = 8`, trained cartridge, seed 1 (regression) | **19 / 19 EXACT** |
+| `SM_TARGET = 8`, mean cycles/token | **1,116,979** - the committed integer |
+| `SM_TARGET = 16`, random-init cartridge, fast path | **19 / 19 EXACT** |
+| `SM_TARGET = 16`, `T = 85`, legacy attention path | **84 / 84 EXACT** |
+| `NES_SM_NORM=exact` (a normaliser the ROM does not implement) | **refuses to assemble** |
+
+The last row is a guard tested by tripping it, the way the `T` guards were.
+`host/ref.py` can emit an exactly-normalised softmax; the kernel implements
+only the power-of-two one, so `shifts.inc` carries `SM_EXACTNORM` and
+`rom/nn.s` asserts it is 0 rather than silently computing something else.
+
+### What the wider budget costs, on the random-init cartridge
+
+Random init is the worst case for this change - the scores are near uniform,
+so the widened budget lights up the most positions it ever will. `-DATTNPROF`
+at position 18:
+
+| | `SM_TARGET = 8` | `SM_TARGET = 16` | delta |
+| --- | ---: | ---: | ---: |
+| AV kernel | 9,824 | 14,040 | **+4,216** |
+| AV section (incl. `av_patch`) | 22,650 | 27,608 | +4,958 |
+| QK kernel | 39,970 | 39,926 | -44 |
+| softmax | 18,741 | 18,715 | -26 |
+| **token total, pos 18** | **1,143,181** | **1,148,270** | **+5,089 (+0.45%)** |
+
+QK and softmax do not move, as designed - the softmax's `kk` loop runs one
+fewer iteration and the AV chain's inner loop is unchanged. The entire cost
+is the AV chain running more units, and even at the worst case it is under
+half a percent of a token.
+
+At `T = 85` on the legacy path the same comparison is 1,684,775 -> 1,684,855
+cycles/token, **+80, +0.005%**: that path re-reads every position whether its
+probability is zero or not, so a wider budget costs it almost nothing at all.
+
+**Both of these are random-init numbers and neither is the answer.** A
+trained model is far peakier than random init, so its live-position count -
+and therefore its cost - is a different number, measured below once a trained
+wide-softmax model exists.
