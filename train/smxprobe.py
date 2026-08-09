@@ -96,16 +96,17 @@ def main():
         sums[t] = sums.get(t, 0) + 1
         smax = max(smax, t)
         mx = max(mx, max(pr) if pr else 0)
-        if t > 8:
+        if t > ref.SM_TARGET:
             viol_sum += 1
-        if pr and max(pr) > 7:
+        if pr and max(pr) > ref.PMAX:
             viol_val += 1
-    print("\n-- claim: sum_t p_t <= 8, p_t integer in 0..7 --")
+    print("\n-- claim: sum_t p_t <= %d, p_t integer in 0..%d --"
+          % (ref.SM_TARGET, ref.PMAX))
     print("softmax evaluations      %d" % len(scorelog))
     print("max observed sum_t p_t   %d" % smax)
     print("max observed p_t         %d" % mx)
-    print("evaluations with sum > 8 %d" % viol_sum)
-    print("evaluations with p_t > 7 %d" % viol_val)
+    print("evaluations over budget  %d" % viol_sum)
+    print("evaluations over clamp   %d" % viol_val)
     print("sum_t p_t histogram:")
     for k in sorted(sums):
         print("   sum = %-3d  %6d  %5.1f%%" % (k, sums[k],
@@ -138,7 +139,7 @@ def main():
             # positions holding >= 1/8 of the mass: what a sum-8 budget could
             # in principle name at all
             tt = sum(e)
-            nf += sum(1 for v in e if v / tt >= 1.0 / 8.0)
+            nf += sum(1 for v in e if v / tt >= 1.0 / ref.SM_TARGET)
         print("%-6d %-9.2f %-9.2f %-11.2f %-11.2f %-9.2f"
               % (l, nz / cnt, eq / cnt, ef / cnt, nf / cnt, av / cnt))
         tot_nz += nz; tot_eq += eq; tot_ef += ef; tot_nf += nf; tot_av += av
@@ -149,7 +150,8 @@ def main():
     print("\nnonzero    = positions with a nonzero 4-bit nibble (the kernel)")
     print("eff(quant) = exp(entropy) of the quantised nibbles")
     print("eff(float) = exp(entropy) of exp(score/%.0f) on the SAME scores" % a.temp)
-    print("nonzero_f  = float positions holding >= 1/8 of the mass")
+    print("nonzero_f  = float positions holding >= 1/%d of the mass"
+          % ref.SM_TARGET)
     print("avail      = positions the causal mask allows (p+1)")
 
     # ---- AV sparsity: the thing a wider representation would destroy ------
@@ -157,6 +159,29 @@ def main():
     for (_sc, pr) in scorelog:
         totmac += len(pr)
         nzmac += sum(1 for v in pr if v)
+    # ---- the AV accumulator: does AV_SHIFT still fit? ---------------------
+    r = ref.Runner(m)
+    r.record_av = True
+    cur = int(a.seeds.split(",")[0])
+    for p in range(n):
+        cur = r.step(cur, p)
+    av = r.av_log
+    lo = min(av); hi = max(av)
+    mean = sum(av) / float(len(av))
+    var = sum((v - mean) ** 2 for v in av) / float(len(av))
+    HI = (8 << ref.AV_SHIFT) - 1
+    LO = -(7 << ref.AV_SHIFT)
+    sat = sum(1 for v in av if v > HI or v < LO)
+    levels = len(set(ref.quant(v, ref.AV_SHIFT) for v in av))
+    print("\n-- AV accumulator (AV_SHIFT = %d, PMUL_SHIFT = %d) --"
+          % (ref.AV_SHIFT, ref.PMUL_SHIFT))
+    print("samples        %d" % len(av))
+    print("range          %d .. %d" % (lo, hi))
+    print("mean / std     %.3f / %.3f" % (mean, var ** 0.5))
+    print("saturating     %d  (%.2f%%)  outside [%d, %d]"
+          % (sat, 100.0 * sat / len(av), LO, HI))
+    print("output levels  %d of 15 reachable" % levels)
+
     print("\n-- AV multiply-adds --")
     print("softmax positions total      %d" % totmac)
     print("with a nonzero probability   %d  (%.2f%%)"

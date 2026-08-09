@@ -428,6 +428,14 @@ class Runner:
         # arithmetic and defaults to off so the specification path is unaltered.
         self.record_attn = False
         self.attn_log = []
+        # Same contract for the raw AV accumulator: opt-in, appends the
+        # pre-requantise 16-bit value for every (head, dimension), changes no
+        # arithmetic.  Widening the probability budget adds a floor error of
+        # up to 1 per LIVE position, so the accumulator's spread is a
+        # different question at every SM_TARGET and AV_SHIFT has to be
+        # re-checked rather than assumed to carry.
+        self.record_av = False
+        self.av_log = []
 
     def step(self, tok, p):
         m = self.m
@@ -462,6 +470,8 @@ class Runner:
                     for t in range(p + 1):
                         s += PMUL[(pr[t] << 4) | self.Vc[l][t][base + j]]
                     s -= PBIAS * (p + 1)
+                    if self.record_av:
+                        self.av_log.append(s)
                     att[base + j] = quant(s, AV_SHIFT)
 
             if l == 0:
