@@ -8,9 +8,11 @@
 # matters - does T = 85 close on T = 20 when the probability nibble is wider -
 # is made at matched steps, matched seeds and matched everything else.
 #
-# Four cells: {T = 20, T = 85} x {SM_TARGET = 8, 16}.  The T = 8 cells are a
-# fresh control at 12,000 steps rather than the numbers quoted from the
-# context journal, because those were one seed and a different tree.
+# Four cells: {T = 20, T = 85} x {pow2, exact} normaliser, both at the shipped
+# budget of 8 - because the screen says the budget is not what was binding and
+# the NORMALISER is.  The pow2 cells are a fresh control at 12,000 steps
+# rather than the numbers quoted from the context journal, because those were
+# one seed and a different tree.
 #
 #   train/smx_ctx.sh [steps] [workers]
 set -e
@@ -22,15 +24,15 @@ mkdir -p "$OUT"
 
 JOBS=0
 for T in 20 85; do
-    for TGT in 8 16; do
+    for NM in pow2 exact; do
         for S in 1 2; do
-            TAG="ctx_T${T}_t${TGT}_s${S}"
+            TAG="ctx_T${T}_${NM}_s${S}"
             if [ -f "$OUT/$TAG.json" ]; then
                 echo "skip $TAG"
                 continue
             fi
             echo "launch $TAG"
-            NES_T=$T NES_SM_TARGET=$TGT \
+            NES_T=$T NES_SM_NORM=$NM \
                 python3 train/train_nes.py --vocab bpe64 --tau 0.75 \
                 --steps "$STEPS" --seed "$S" --name "$TAG" --out "$OUT" \
                 > "$OUT/$TAG.log" 2>&1 &

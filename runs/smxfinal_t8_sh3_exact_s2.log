@@ -21,3 +21,16 @@ smxfinal_t8_sh3_exact_s2     step  9500  fit 2.3450  val 2.3431  density 0.5295 
 smxfinal_t8_sh3_exact_s2     step 10000  fit 2.3464  val 2.3584  density 0.5286  239s
 smxfinal_t8_sh3_exact_s2     step 10500  fit 2.3542  val 2.3369  density 0.5276  251s
 smxfinal_t8_sh3_exact_s2     step 11000  fit 2.3421  val 2.3340  density 0.5279  263s
+smxfinal_t8_sh3_exact_s2     step 11500  fit 2.3548  val 2.3392  density 0.5267  275s
+smxfinal_t8_sh3_exact_s2     step 12000  fit 2.2933  val 2.3007  density 0.5249  287s
+smxfinal_t8_sh3_exact_s2     step 12500  fit 2.3486  val 2.3564  density 0.5240  299s
+smxfinal_t8_sh3_exact_s2     step 13000  fit 2.3180  val 2.3347  density 0.5235  311s
+smxfinal_t8_sh3_exact_s2     step 13500  fit 2.2967  val 2.2819  density 0.5240  323s
+smxfinal_t8_sh3_exact_s2     step 14000  fit 2.3126  val 2.2978  density 0.5229  335s
+smxfinal_t8_sh3_exact_s2     step 14500  fit 2.2954  val 2.3002  density 0.5218  347s
+smxfinal_t8_sh3_exact_s2     step 15000  fit 2.3024  val 2.3086  density 0.5194  359s
+smxfinal_t8_sh3_exact_s2     step 15500  fit 2.2835  val 2.2739  density 0.5221  371s
+smxfinal_t8_sh3_exact_s2     step 16000  fit 2.2946  val 2.2765  density 0.5206  382s
+smxfinal_t8_sh3_exact_s2     step 16500  fit 2.2860  val 2.2785  density 0.5196  394s
+smxfinal_t8_sh3_exact_s2     step 17000  fit 2.2774  val 2.2813  density 0.5202  406s
+smxfinal_t8_sh3_exact_s2     step 17500  fit 2.2974  val 2.2996  density 0.5187  418s
