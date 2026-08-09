@@ -2717,3 +2717,37 @@ This one costs +0.03%.
 scores from a model trained against `sum <= 8`; a model trained against
 `sum <= 16` will spread further and cost more, and the loss comparison is
 what decides. Both are measured below.
+
+### The same read at `T = 85`, where the long-range head lives
+
+`runs/t85_final_s2.npz`, 3 seed tokens x 84 steps, held constant across both
+kernels:
+
+| | `SM_TARGET = 8` | `SM_TARGET = 16` | float ceiling |
+| --- | ---: | ---: | ---: |
+| live positions, all layers | 1.58 | **2.60** | - |
+| eff(quant), all layers | 1.47 | **2.10** | 5.27 |
+| eff(quant), **layer 2** (the long-range head) | 1.46 | **2.24** | **8.09** |
+| AV multiply-adds hitting a zero | 96.29% | 93.89% | - |
+| AV accumulator range / saturation | -13..13 / 0.00% | -14..13 / 0.00% | - |
+| AV output levels used | 8 of 15 | 8 of 15 | - |
+
+Widening to 16 moves layer 2 from 1.46 to 2.24 effective positions against a
+float ceiling of 8.09 - it recovers about **12% of the gap**, not most of it.
+The budget is not the only thing in the way; the exp table's 15 buckets and
+the `kk` normaliser's factor-of-two waste are also in it. That is exactly why
+the screen has an arm for each.
+
+The accumulator does not move enough to disturb `AV_SHIFT`: same 0.00%
+saturation, same 8 of 15 levels reachable, range -13..13 -> -14..13. The
+`PMUL_SHIFT = 2 + log2(SM_TARGET/8)` construction is doing what it was
+designed to do.
+
+**A correction to DESIGN.md's "where the family stops being free":**
+`SM_TARGET = 32` needs a 512-byte product table, so the row address needs two
+patched bytes instead of one - but `av_patch` runs **once per live position**,
+not once per multiply-add. At ~2.6 live positions per head that is roughly
+16 extra cycles x 2.6 x 6 heads = ~250 cycles a token, not a per-MAC cost.
+32 is therefore buildable and merely inconvenient (`P4HI` would have to hold
+`p` rather than `p<<4`). Whether it is worth building is what the screen's
+arm C decides.
