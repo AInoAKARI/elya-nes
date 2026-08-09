@@ -617,6 +617,7 @@ def pack(model, outdir):
         f.write("SM_TARGET = %d\n" % SM_TARGET)
         f.write("PMAX     = %d\n" % PMAX)
         f.write("PVBIAS   = %d\n" % PBIAS)
+        f.write("PVMAX    = %d\n" % PMUL_MAX)
         f.write("PBLOCK   = %d\n" % PBLOCK)
 
     nnz = sum(len(p) + len(n) for p, n in rows)

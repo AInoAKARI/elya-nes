@@ -17,8 +17,18 @@ cat out/model/pack_report.txt
 build() {   # build <name> <src> <cfg> [defines...]
     name=$1; src=$2; cfg=$3; shift 3
     ca65 -I rom -I out/model "$@" -o "out/$name.o" "$src"
-    ld65 -C "$cfg" -o "out/$name.nes" -Ln "out/$name.lbl" "out/$name.o" 2>&1 \
-        | grep -v "Segment 'CHARS' does not exist" \
+    # ld65's status has to be captured BEFORE the pipe, or a memory-area
+    # overflow leaves the previous .nes on disk and every downstream check
+    # silently measures a stale ROM.  That happened: adding a 256-byte table
+    # overflowed the $C000 bank, ld65 said so, `| grep` returned 0, `set -e`
+    # saw success, and md5sum then reported the images "unchanged".
+    if ! ld65 -C "$cfg" -o "out/$name.nes" -Ln "out/$name.lbl" \
+              "out/$name.o" > out/$name.ldlog 2>&1; then
+        echo "*** LINK FAILED: $name" >&2
+        cat out/$name.ldlog >&2
+        exit 1
+    fi
+    grep -v "Segment 'CHARS' does not exist" out/$name.ldlog \
         | grep -v "Segment 'POS' does not exist" || true
 }
 # 'POS' is empty whenever the positional table shares the embedding bank,

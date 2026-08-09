@@ -9,3 +9,4 @@ runs/*_ckpt.npz
 runs/*_ckpt.json
 out/sv.nes
 out/sv.o
+out/*.ldlog

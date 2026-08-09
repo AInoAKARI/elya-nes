@@ -378,6 +378,16 @@ tbl_blkcnt: .incbin "out/model/tbl_blkcnt.bin"
 tbl_step:   .incbin "out/model/tbl_step.bin"
 tbl_exp:    .incbin "out/model/tbl_exp.bin"
 
+.segment "PVTABLE"
+; The AV product table.  Separate from tbl_mul because AV's high nibble is an
+; unsigned probability in 0..PMAX and QK's is a signed activation in -7..7; at
+; SM_TARGET = 8 the two agree on every row AV reads.  Page aligned for the
+; same reason tbl_mul is: av_patch writes p<<4 into the operand's LOW byte and
+; the high byte is assembled, so the row address costs one store.
+tbl_pv:     .incbin "out/model/tbl_pv.bin"
+    .assert PBLOCK * PVMAX <= 255, error, "AV block would set carry"
+    .assert PMAX <= 15, error, "a probability nibble no longer fits p<<4"
+
 ; The softmax tables live in the $A000 bank, which is mapped throughout
 ; softmax; the $C000 table bank has no room left.
 .segment "SMTABLES"
@@ -417,8 +427,8 @@ avchain:
 .repeat NCTX, u
     .ident (.sprintf ("avu%02d", u)):
     ldx VBASE, y                ; base (+1,+2) and multiply row (+4) are all
-    adc tbl_mul, x              ; patched per unit; y is just d
-    .if (u = 9) || (u = NCTX - 1)
+    adc tbl_pv, x               ; patched per unit; y is just d
+    .if ((u .mod PBLOCK) = PBLOCK - 1) || (u = NCTX - 1)
     adc totL                    ; fold the block into the 16-bit total
     sta totL
     bcc *+4
@@ -896,7 +906,7 @@ avptr_chain:
     .ident (.sprintf ("avpu%02d", u)):
     ldy VBASE + (NCTX - 1 - u) * 256, x
     adc (mulp), y
-    .if (u = 9) || (u = NCTX - 1)
+    .if ((u .mod PBLOCK) = PBLOCK - 1) || (u = NCTX - 1)
     adc totL
     sta totL
     bcc *+4
@@ -1047,9 +1057,9 @@ attn_bench:
     bcc @l
 
     ; the no-SMC pointer form, same sweep, same driver
-    lda #<tbl_mul
+    lda #<tbl_pv
     sta mulp
-    lda #>tbl_mul
+    lda #>tbl_pv
     sta mulp+1
     lda #0
     sta di
@@ -1936,14 +1946,14 @@ attn_head:
     sta avp
     lda avent_hi,y
     sta avp+1
-    lda #0                      ; nb = -(MULBIAS * avn); seeding the
+    lda #0                      ; nb = -(PVBIAS * avn); seeding the
     sta nbL                     ; accumulator with it is 14 cycles a dimension
     sta nbH                     ; cheaper than subtracting it afterwards
     beq @bdone
 @bias:
     sec
     lda nbL
-    sbc #MULBIAS
+    sbc #PVBIAS
     sta nbL
     lda nbH
     sbc #0
@@ -2223,7 +2233,7 @@ acc_av:
     ora ph
     tax
     lda ACC8,y
-    adc tbl_mul,x
+    adc tbl_pv,x
     sta ACC8,y
     iny
     .endrepeat
@@ -2263,7 +2273,7 @@ av_quant:
 @mul:
     lda sumL
     clc
-    adc #MULBIAS
+    adc #PVBIAS
     sta sumL
     lda sumH
     adc #0
@@ -2370,14 +2380,14 @@ softmax:
     beq @e
     bcc @e
 
-    ; kk = smallest k with (S >> k) <= 8
+    ; kk = smallest k with (S >> k) <= SM_TARGET
     lda #0
     sta kk
 @kkl:
     lda sumH
     bne @shift
     lda sumL
-    cmp #9
+    cmp #SM_TARGET + 1
     bcc @kkdone
 @shift:
     lsr sumH

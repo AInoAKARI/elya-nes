@@ -10,4 +10,5 @@ SM_KROWS = 9
 SM_TARGET = 8
 PMAX     = 7
 PVBIAS   = 13
+PVMAX    = 25
 PBLOCK   = 10
