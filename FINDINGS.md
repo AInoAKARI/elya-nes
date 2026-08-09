@@ -2886,3 +2886,24 @@ mixture never touches - it moves `$5114` and `$5116` only - so this was
 expected, and it was checked anyway because the last time a bank selection was
 assumed rather than named, the block ended up scattered across whichever bank
 happened to be mapped.
+
+## 8. The trainer's mixture IS the host reference, at every layer
+
+`train/test_equiv.py` now takes an expert count. The random-integer model it
+builds routes `tok % N`, and the token trajectory it checks is constructed so
+that **every** expert is exercised - a mixture that silently always routed to
+expert 0 would otherwise pass.
+
+```
+experts: 4   experts exercised by the test trajectory: [0, 1, 2, 3] of 4
+layer 0  x:  max|torch - ref| = 0   over 1280 values
+layer 1  x:  max|torch - ref| = 0   over 1280 values
+layer 2  x:  max|torch - ref| = 0   over 1280 values
+logits:      max|torch - ref| = 0   over 1280 values
+argmax token ids equal        : True
+FORWARD-PASS EQUIVALENCE: EXACT
+```
+
+`N = 1`, `N = 4` and `N = 8` all report EXACT. Without this the QAT trainer
+could be training a model the cartridge does not run, and every loss number
+below would be decorative.

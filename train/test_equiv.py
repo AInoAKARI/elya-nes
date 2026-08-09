@@ -21,7 +21,7 @@ import ref
 import model_nes as M
 
 
-def random_int_model(seed=7):
+def random_int_model(seed=7, nexp=1):
     g = np.random.default_rng(seed)
     z = {}
     z["emb"] = g.integers(-7, 8, size=(M.V, M.D)).astype(np.int8)
@@ -31,25 +31,41 @@ def random_int_model(seed=7):
         return np.where(u < 2, 0, np.where(u == 2, 1, -1)).astype(np.int8)
     for l in range(M.L):
         for nm, sh in (("Wq", (M.D, M.D)), ("Wk", (M.D, M.D)), ("Wv", (M.D, M.D)),
-                       ("Wo", (M.D, M.D)), ("W1", (M.FF, M.D)), ("W2", (M.D, M.FF))):
+                       ("Wo", (M.D, M.D))):
             z["L%d_%s" % (l, nm)] = tern(*sh)
+        for nm, sh in (("W1", (M.FF, M.D)), ("W2", (M.D, M.FF))):
+            if nexp == 1:
+                z["L%d_%s" % (l, nm)] = tern(*sh)
+            else:
+                for e in range(nexp):
+                    z["L%d_%s_e%d" % (l, nm, e)] = tern(*sh)
     z["head"] = tern(M.V, M.D)
+    if nexp > 1:
+        # every expert must be reachable or the test does not test it
+        z["_route"] = np.array([t % nexp for t in range(M.V)], dtype=np.int16)
+        z["_moe"] = np.array([nexp, 1], dtype=np.int16)
     return z
 
 
-def load_into_torch(z, tau=1.0):
-    m = M.NesModel(tau=tau, mode="twn", quant=True)
+def load_into_torch(z, tau=1.0, nexp=1):
+    route = [int(v) for v in z["_route"]] if nexp > 1 else None
+    m = M.NesModel(tau=tau, mode="twn", quant=True, nexp=nexp, route=route)
     with torch.no_grad():
         m.emb.copy_(torch.tensor(z["emb"], dtype=torch.float32))
         m.pos.copy_(torch.tensor(z["pos"], dtype=torch.float32))
         for l in range(M.L):
-            for nm, pl in (("Wq", m.Wq), ("Wk", m.Wk), ("Wv", m.Wv),
-                           ("Wo", m.Wo), ("W1", m.W1), ("W2", m.W2)):
+            for nm, pl in (("Wq", m.Wq), ("Wk", m.Wk), ("Wv", m.Wv), ("Wo", m.Wo)):
                 pl[l].copy_(torch.tensor(z["L%d_%s" % (l, nm)], dtype=torch.float32))
-        m.head.copy_(torch.tensor(z["head"], dtype=torch.float32))
+            for nm, pl in (("W1", m.W1), ("W2", m.W2)):
+                for e in range(nexp):
+                    k = ("L%d_%s" % (l, nm)) if nexp == 1 else ("L%d_%s_e%d" % (l, nm, e))
+                    pl[l][e].copy_(torch.tensor(z[k], dtype=torch.float32))
+        m.head[0].copy_(torch.tensor(z["head"], dtype=torch.float32))
     # the quantiser must reproduce the integers it was handed
     e = m.export_int()
     for k in z:
+        if k.startswith("_"):
+            continue
         assert np.array_equal(e[k], z[k]), "round trip failed on %s" % k
     return m
 
@@ -67,13 +83,25 @@ def main():
           % ("YES" if bad == 0 else "NO", bad))
     assert bad == 0
 
-    z = random_int_model()
+    nexp = int(sys.argv[1]) if len(sys.argv) > 1 else 1
+    print("experts: %d" % nexp)
+    z = random_int_model(nexp=nexp)
     np.savez("/tmp/_equiv.npz", **z)
     rm = ref.Model.from_npz("/tmp/_equiv.npz")
-    tm = load_into_torch(z)
+    tm = load_into_torch(z, nexp=nexp)
 
     rng = np.random.default_rng(3)
     toks = rng.integers(0, M.V, size=M.T).tolist()
+    if nexp > 1:
+        # force the trajectory through EVERY expert, so a mixture that only
+        # ever routes to expert 0 cannot pass this
+        toks = [(i * 7 + e) % M.V for i, e in
+                enumerate([x % nexp for x in range(M.T)])]
+        toks = [t - (t % nexp) + (i % nexp) for i, t in enumerate(toks)]
+        used = sorted(set(rm.route[t] for t in toks))
+        print("experts exercised by the test trajectory: %s of %d"
+              % (used, nexp))
+        assert len(used) == nexp
 
     # ---- host reference, teacher forced on the same tokens ----------------
     r = ref.Runner(rm)
@@ -83,7 +111,8 @@ def main():
         s = r.trace[-1]
         ref_x.append([s["L%d.x" % l] for l in range(M.L)])
         ref_next.append(nxt)
-        ref_logits.append(ref.matmul(r.split["head"], s["L2.x"], 0, raw=True))
+        ref_logits.append(ref.matmul(r.split[rm.route[t]]["head"],
+                                     s["L2.x"], 0, raw=True))
 
     # ---- torch twin -------------------------------------------------------
     tm.eval()
