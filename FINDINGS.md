@@ -2432,3 +2432,19 @@ recorded as one.
   code, kept working, not improved. If a long context ever became interesting
   again the honest next step is a K layout with an `L*T` stride and a
   bank-switching QK chain, and a measurement of what that costs per unit.
+
+---
+
+# Mixture of experts across spare PRG banks
+
+Continuation of the context result. `T = 20 -> T = 85` made the model worse
+(1.4133/1.4149 against 1.4347/1.4318 nats/char, two seeds each,
+non-overlapping) while the mechanism demonstrably worked - layer-2 mean
+attention distance 0.91 -> 7.82. Context is not the ceiling. Capacity is.
+
+The lever this journal tests: keep the 102,400-weight compute budget per token
+and buy PARAMETERS from cartridge ROM, which a flash cart has in abundance and
+an original NES cart did not. One expert streams per token; the cycles per
+token barely move; the parameter count multiplies.
+
+Everything below is measured on this tree unless it says otherwise.
