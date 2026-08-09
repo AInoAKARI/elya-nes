@@ -3064,3 +3064,30 @@ Two things were learned that were not on anyone's list:
    false as a limit.
 2. **The shared exponent was the problem**, and it was on the brief's list as
    an *option to add* rather than as the thing already there and costing.
+
+## A knock-on: `AV_SHIFT` moved, and the ladder had to be re-run
+
+`AV_SHIFT = 2` was chosen by a ladder run under the **old** normaliser. The
+exact normaliser hands out a larger realised sum - 6 or 7 where a quarter of
+evaluations used to get 4 - so the attention accumulator is bigger and the
+shift that best fits it is a different question. Re-laddered, 12,000 steps,
+two seeds each, exact normalisation throughout:
+
+| AV_SHIFT | seed 1 | seed 2 | **mean** | spread | reachable output levels | saturation |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 1.5745 | 1.5853 | 1.5799 | 0.0108 | **15 of 15** | 0.00% |
+| 2 (shipped) | 1.5157 | 1.5179 | 1.5168 | 0.0021 | 8 of 15 | 0.00% |
+| **3** | **1.5052** | **1.5089** | **1.5071** | 0.0037 | **4 of 15** | 0.00% |
+| 4 | 1.5500 | 1.5537 | 1.5519 | 0.0037 | - | - |
+| 5 | 1.5589 | 1.5599 | 1.5594 | 0.0010 | - | - |
+
+A clean interior optimum at **3**, beating the shipped 2 by 0.0097 with
+non-overlapping seed ranges, and falling away on both sides.
+
+**The "more reachable levels is better" intuition is refuted again, harder.**
+`AV_SHIFT = 1` reaches all 15 output levels and saturates 0.00% of the time -
+it is the value the range argument demands - and it is the **worst** of the
+five. `AV_SHIFT = 3` reaches **four** levels and is the best. This is the same
+shape the original ladder found and it is now measured twice, under two
+different normalisers. Whatever the attention output is for, it is not for
+carrying a finely graded number.

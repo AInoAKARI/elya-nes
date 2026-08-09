@@ -1,1 +1,3 @@
 smxfinal_av3_exact_s1        step     1  fit 8.1737  val 8.2127  density 0.5503  1s
+smxfinal_av3_exact_s1        step   500  fit 3.0749  val 3.0750  density 0.5478  7s
+smxfinal_av3_exact_s1        step  1000  fit 2.8810  val 2.8820  density 0.5473  14s
