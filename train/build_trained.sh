@@ -16,6 +16,12 @@ export NES_T
 # A denser model needs more than the seven 8 KB weight-stream banks.  The
 # packer, the assembler and the linker config all have to agree about how many,
 # so it is set in ONE place here.
+#
+# NES_SM_TARGET / NES_SM_SHIFT are inherited from the environment: host/ref.py
+# writes them into out/model/shifts.inc and ca65 reads that, so the packer and
+# the kernel cannot disagree.  from_npz refuses an npz whose stamped budget
+# does not match, which is what stops a wide-softmax model being packed for a
+# narrow kernel.
 NES_STREAM_BANKS=${NES_STREAM_BANKS:-7}
 export NES_STREAM_BANKS
 if [ "$NES_STREAM_BANKS" -eq 7 ]; then CFG=rom/nn.cfg
@@ -31,8 +37,14 @@ echo
 build() {
     name=$1; src=$2; cfg=$3; shift 3
     ca65 -I rom -I out/model "$@" -o "out/$name.o" "$src"
-    ld65 -C "$cfg" -o "out/$name.nes" -Ln "out/$name.lbl" "out/$name.o" 2>&1 \
-        | grep -v "Segment 'CHARS' does not exist" \
+    # exit status captured BEFORE the pipe; see build.sh for why
+    if ! ld65 -C "$cfg" -o "out/$name.nes" -Ln "out/$name.lbl" \
+              "out/$name.o" > out/$name.ldlog 2>&1; then
+        echo "*** LINK FAILED: $name" >&2
+        cat out/$name.ldlog >&2
+        exit 1
+    fi
+    grep -v "Segment 'CHARS' does not exist" out/$name.ldlog \
         | grep -v "Segment 'POS' does not exist" || true
 }
 DEFS="-DNCTX=$NES_T -DNSTREAM=$NES_STREAM_BANKS -DSEEDTOK=$SEED"
