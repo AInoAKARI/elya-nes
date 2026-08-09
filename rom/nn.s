@@ -387,6 +387,10 @@ tbl_exp:    .incbin "out/model/tbl_exp.bin"
 tbl_pv:     .incbin "out/model/tbl_pv.bin"
     .assert PBLOCK * PVMAX <= 255, error, "AV block would set carry"
     .assert PMAX <= 15, error, "a probability nibble no longer fits p<<4"
+    ; The kernel implements the power-of-two (shared exponent) normaliser only.
+    ; host/ref.py can also do an exact one; if the packer emitted that, the ROM
+    ; would silently compute something else, so refuse to assemble instead.
+    .assert SM_EXACTNORM = 0, error, "ROM has no exact-normalisation softmax"
 
 ; The softmax tables live in the $A000 bank, which is mapped throughout
 ; softmax; the $C000 table bank has no room left.

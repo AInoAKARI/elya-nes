@@ -48,6 +48,7 @@ SM_TEMP = 16.0         # exp table is ~64*exp(d/2) with d = floor(ds/8)
 # is what keeps AV_SHIFT and the attention output range fixed across the
 # family.  Keep this identical to host/ref.py - train/test_equiv.py proves it.
 SM_TARGET = int(os.environ.get("NES_SM_TARGET", "8"))
+SM_NORM = os.environ.get("NES_SM_NORM", "pow2")   # see host/ref.py
 PMAX = SM_TARGET - 1
 PMUL_SHIFT = 2 + (SM_TARGET // 8).bit_length() - 1
 SM_SUM = float(SM_TARGET)
@@ -144,15 +145,18 @@ def softmax_q(scores, mask, exptab):
     idx = (d + lim).long().clamp(0, EXP_N - 1)
     e = exptab[idx]                                   # exact table lookup
     S = e.sum(-1, keepdim=True)
-    # kk = smallest k with (S >> k) <= SM_TARGET
-    kk = torch.zeros_like(S)
-    cur = S.clone()
-    for _ in range(16):                               # S <= T*64 = 5440 < 2^13
-        step = (torch.floor(cur / 2 ** kk) > SM_SUM).float()
-        kk = kk + step
-        if step.sum() == 0:
-            break
-    hard = torch.clamp(torch.floor(e / 2 ** kk), max=float(PMAX))
+    if SM_NORM == "exact":
+        hard = torch.clamp(torch.floor(e * SM_TARGET / S), max=float(PMAX))
+    else:
+        # kk = smallest k with (S >> k) <= SM_TARGET
+        kk = torch.zeros_like(S)
+        cur = S.clone()
+        for _ in range(16):                           # S <= T*64 = 5440 < 2^13
+            step = (torch.floor(cur / 2 ** kk) > SM_SUM).float()
+            kk = kk + step
+            if step.sum() == 0:
+                break
+        hard = torch.clamp(torch.floor(e / 2 ** kk), max=float(PMAX))
     hard = torch.where(mask, hard, torch.zeros_like(hard))
     soft = torch.softmax(torch.where(mask, scores, neg) / SM_TEMP, dim=-1) * SM_SUM
     soft = torch.clamp(soft, max=float(PMAX))

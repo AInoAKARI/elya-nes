@@ -59,6 +59,20 @@ SM_SHIFT = int(os.environ.get("NES_SM_SHIFT", "3"))  # score difference -> exp
 # and its inner loop does not change at all.  See DESIGN.md and FINDINGS.
 SM_TARGET = int(os.environ.get("NES_SM_TARGET", "8"))
 assert SM_TARGET in (8, 16, 32), "SM_TARGET must be 8, 16 or 32"
+
+# How the exp values are normalised onto that budget.
+#   pow2  : p = min(e >> kk, PMAX) with kk the smallest shift making the sum
+#           fit.  This is what shipped.  It is a SHARED EXPONENT, and it
+#           wastes up to a factor of two: the realised sum lands anywhere in
+#           (SM_TARGET/2, SM_TARGET].
+#   exact : p = min(e * SM_TARGET // S, PMAX).  No waste.  On the 6502 this is
+#           still ONE table lookup per position - the row is chosen once per
+#           softmax from (kk, S>>kk) instead of from kk alone - but the table
+#           grows by the number of distinct mantissas.  Implemented here and
+#           in the trainer so the question "is the power-of-two waste worth
+#           paying ROM for?" is answered before any ROM is spent on it.
+SM_NORM = os.environ.get("NES_SM_NORM", "pow2")
+assert SM_NORM in ("pow2", "exact")
 PMAX = SM_TARGET - 1
 PMUL_SHIFT = 2 + (SM_TARGET // 8).bit_length() - 1   # 8->2, 16->3, 32->4
 # A probability nibble is stored pre-shifted as p<<4 (the low byte of its row
@@ -252,6 +266,9 @@ def softmax_q(scores):
             d = -(EXP_N - 1)
         e.append(EXPTAB[d + EXP_N - 1])
     S = sum(e)
+    if SM_NORM == "exact":
+        # S >= EXP_TOP always: the max-scoring position has d = 0
+        return [min(x * SM_TARGET // S, PMAX) for x in e]
     kk = 0
     while (S >> kk) > SM_TARGET:
         kk += 1
@@ -619,6 +636,7 @@ def pack(model, outdir):
         f.write("PVBIAS   = %d\n" % PBIAS)
         f.write("PVMAX    = %d\n" % PMUL_MAX)
         f.write("PBLOCK   = %d\n" % PBLOCK)
+        f.write("SM_EXACTNORM = %d\n" % (1 if SM_NORM == "exact" else 0))
 
     nnz = sum(len(p) + len(n) for p, n in rows)
     return {

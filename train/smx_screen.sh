@@ -20,8 +20,8 @@ WORKERS=${2:-2}
 OUT=runs/smx
 mkdir -p "$OUT"
 
-# arm  SM_TARGET  SM_SHIFT
-ARMS="a:8:3 b:16:3 c:32:3 d:16:2 e:8:2"
+# arm  SM_TARGET  SM_SHIFT  NORM
+ARMS="a:8:3:pow2 b:16:3:pow2 c:32:3:pow2 d:16:2:pow2 e:8:2:pow2 f:8:3:exact g:16:3:exact"
 SEEDS="1 2"
 
 JOBS=0
@@ -29,14 +29,15 @@ for A in $ARMS; do
     NAME=$(echo "$A" | cut -d: -f1)
     TGT=$(echo "$A" | cut -d: -f2)
     SH=$(echo "$A" | cut -d: -f3)
+    NM=$(echo "$A" | cut -d: -f4)
     for S in $SEEDS; do
-        TAG="smx_${NAME}_t${TGT}_sh${SH}_s${S}"
+        TAG="smx_${NAME}_t${TGT}_sh${SH}_${NM}_s${S}"
         if [ -f "$OUT/$TAG.json" ]; then
             echo "skip $TAG (already done)"
             continue
         fi
         echo "launch $TAG"
-        NES_SM_TARGET=$TGT NES_SM_SHIFT=$SH \
+        NES_SM_TARGET=$TGT NES_SM_SHIFT=$SH NES_SM_NORM=$NM \
             python3 train/train_nes.py --vocab bpe64 --tau 0.75 \
             --steps "$STEPS" --seed "$S" --name "$TAG" --out "$OUT" \
             > "$OUT/$TAG.log" 2>&1 &
