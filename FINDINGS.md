@@ -2432,3 +2432,87 @@ recorded as one.
   code, kept working, not improved. If a long context ever became interesting
   again the honest next step is a K layout with an `L*T` stride and a
   bank-switching QK chain, and a measurement of what that costs per unit.
+
+---
+
+# THE INTEGER SOFTMAX: re-measuring the premise before changing anything
+
+The context experiment ended with a diagnosis it did not test: that the
+`sum_t p_t <= 8`, `p_t` in `0..7` quantised softmax is what stops the
+long-range head the `T = 85` model *did* learn from paying for itself. That
+diagnosis is speculative. This section is the work of testing it, and it
+starts by re-measuring the premise on the current tree rather than trusting
+the number that was written down.
+
+`train/smxprobe.py` runs the exact-integer reference (`host/ref.py`, the
+specification the ROM is verified against), records every softmax evaluation
+in a real greedy generation, and reports both the quantised nibbles and the
+**unquantised** softmax of the identical integer scores. The second column is
+the one the diagnosis never had: if the scores themselves are concentrated on
+~1.5 positions then the nibble is not the binding constraint and this whole
+line of work is dead before it starts.
+
+## The premise reproduces exactly
+
+`runs/final_av2_bpe64_tau0.75.npz` at `T = 20`, 4 seeds x 19 steps, 456
+softmax evaluations (`out/SMX_PREMISE_T20.txt`):
+
+| claim | measured |
+| --- | ---: |
+| `max_t sum p_t` | **8** |
+| `max p_t` | **7** |
+| evaluations with `sum > 8` | **0** |
+| evaluations with `p_t > 7` | **0** |
+| nonzero positions, layer 0 / 1 / 2 | **1.38 / 1.22 / 1.14** |
+
+The "1.14 to 1.75" figure is `1.14` (layer 2, `T = 20`) to `1.77` (layer 0,
+`T = 85`) and both ends reproduce. `sum_t p_t` is 7 in 57.7% of evaluations
+and 4 in 25.4% - the normalisation lands on 7 or 4 far more often than on 8,
+because `kk` is a power-of-two shift and the sum after it is whatever it is.
+
+`runs/t85_final_s2.npz` at `T = 85`, 3 seeds x 84 steps, 1,512 evaluations
+(`out/SMX_PREMISE_T85.txt`): same ceilings, nonzero **1.77 / 1.42 / 1.53**.
+
+**Nothing moved. The premise is intact on this tree.**
+
+## The number the diagnosis was missing
+
+`exp(entropy)` of the same distribution, quantised against unquantised, on
+the **identical** integer scores (float column at the kernel's own effective
+temperature of 16, since the exp table is `~64*exp(floor(ds/8)/2)`):
+
+| | eff(quant) | eff(float) | ratio |
+| --- | ---: | ---: | ---: |
+| `T = 20` layer 0 | 1.31 | 2.21 | 1.7x |
+| `T = 20` layer 1 | 1.17 | 1.83 | 1.6x |
+| `T = 20` layer 2 | 1.11 | 1.73 | 1.6x |
+| `T = 85` layer 0 | 1.61 | 4.32 | 2.7x |
+| `T = 85` layer 1 | 1.35 | 3.38 | 2.5x |
+| **`T = 85` layer 2** | **1.46** | **8.09** | **5.5x** |
+
+**Layer 2 of the long-context model wants to spread over 8.09 positions and
+the 4-bit nibble gives it 1.46.** That is the long-range head, and that is
+the first direct evidence that the quantiser - not the scores - is what
+collapses it. At `T = 20` the same gap is only 1.6x, which is consistent with
+the short model having no long-range head to lose.
+
+This does not prove that fixing the softmax helps the loss. It proves the
+mechanism named in the diagnosis is real and is 5.5x at the place the
+diagnosis pointed at. That is the difference between a claim worth testing
+and one that is already refuted.
+
+## What a wider representation would be destroying
+
+The AV chain is built per head from the **nonzero** softmax nibbles, so the
+zeros are free - they are not multiplied, they are absent. Measured on the
+same runs:
+
+| | positions | nonzero | multiplying by zero |
+| --- | ---: | ---: | ---: |
+| `T = 20` | 4,560 | 568 (12.46%) | **87.54%** |
+| `T = 85` | 64,260 | 2,382 (3.71%) | **96.29%** |
+
+The `T = 20` figure is the 86.9% quoted in the attention journal, re-measured
+on a different seed set. **This is the cost side of the trade**: any change
+that lets more positions carry weight converts free zeros into real
+multiply-adds, and at `T = 85` there are 26x more of them to convert.
