@@ -2631,3 +2631,48 @@ Four constructions, identical cartridge cost, in `train/route.py`:
 is doing anything a coin could not. bpe64 token frequencies span 5,621 to
 597,458 occurrences, so `mod` is not a neutral choice - `tok % 2` alone sends
 55.2% of the corpus to one expert.
+
+## 4. The cartridge change, and what it costs the dense build
+
+The mixture needs the stream walk to leave the shared banks for an expert's
+banks and come back, three times a token. The shipping sentinel could not
+express that - `$FF` meant "increment the bank counter" - so it now carries
+the **absolute** bank number in its second byte, and each expert gets its own
+header table naming the banks it uses. The router is then one indexed load:
+
+```
+    ldx curtok                 ; 2
+    lda routebank,x            ; 4     header bank for this token's expert
+    sta MMC5_PRGC000           ; 4     map it
+```
+
+`routebank` lives in the fixed `$E000` bank, so it is readable whatever else
+is mapped, and it is generated from the same table the trainer stamped into
+the npz.
+
+Every expert's header bank also carries **its own copy of the lookup tables**,
+because the `$C000` window shows one bank and the tables are read while the
+headers are being walked. The copies are `.assert`-ed at assembly time to land
+at identical addresses; a table copy that moved would make a routed token read
+its multiply table out of thin air, and nothing at run time would say so.
+
+### The dense cartridge pays 84 cycles a token for the new sentinel
+
+One code path serves both builds, so the dense cartridge now emits explicit
+bank numbers `0,1,2,...` instead of increments and pays for it:
+
+| | cycles/token | tokens |
+| --- | ---: | --- |
+| dense, increment sentinel (shipping) | 1,116,979 | 19/19 EXACT |
+| dense, absolute sentinel | **1,117,063** | **19/19 EXACT** |
+
+**+84 cycles, +0.0075%.** Predicted +85 before measuring: `iny` + `lda (hptr),y`
++ `sta wbank` replaces `inc wbank` + `lda wbank`, which is +2 cycles on each of
+the six switches, and the packer now emits a leading sentinel for the first
+bank as well, which is one more 73-cycle switch. 12 + 73 = 85 against 84
+measured; the missing cycle is a branch that changed which side of a page it
+sits on, the effect this journal already records at 356 cycles for a five-byte
+edit.
+
+Paying 84 cycles to delete a special case was judged worth it. It is recorded
+as a cost, not a saving.
