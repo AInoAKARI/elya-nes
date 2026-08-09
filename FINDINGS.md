@@ -2949,3 +2949,25 @@ The realised `sum_t p_t`, on 456 softmax evaluations of a trained model:
 The quarter of evaluations that were running on a budget of 4 are now running
 on 6. That is the entire mechanism, and it is visible directly in the
 histogram rather than inferred from the loss.
+
+### Every gate, on the exact cartridge
+
+| gate | result |
+| --- | ---: |
+| **`train/survey_exact.sh`, 64 seed tokens x 19 tokens** | **1,216 / 1,216 EXACT** |
+| `max\|dW\|` over 102,400 ternary weights | **0** |
+| block 16 on the trained weights: 86,374 blocks | **max 206** vs the provable 224, **0** over 255 |
+| block 32 on the same weights | **5,608 of 56,772 over 255** - still refuted |
+| all build variants link at `T <= 21` | **15 targets** |
+| `T = 85`, legacy attention path, 84 tokens | **84 / 84 EXACT** |
+| `T = 85` cycles/token, pow2 -> exact | 1,684,775 -> **1,688,181** (+0.20%) |
+| `train/test_equiv.py`, trainer == reference | **EXACT** at every (target, shift, norm) combination tried |
+
+1,216 / 1,216 is the same figure the committed `out/ATTN_SURVEY.txt` reports
+for the shipped kernel, on a different model and a different softmax.
+
+Block 16's worst observed sum moved 199 -> **206** against the provable bound
+of 224, which is expected: the exact normaliser makes the probability
+distribution slightly flatter, so the attention output is slightly larger, so
+the activations feeding the next gather are slightly larger. It is still 8%
+below the bound and the bound is a proof, not a measurement.
