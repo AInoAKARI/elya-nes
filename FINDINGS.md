@@ -2837,3 +2837,40 @@ implemented - `kk` **is** the shared exponent - and it turns out to be the
 thing that was costing, not the thing that could help. The measurement that
 mattered was not "how many bits does a probability get" but "how much of the
 budget does the normaliser actually hand out".
+
+# THE RESULT: exact normalisation, 60,000 steps, two seeds
+
+Same recipe as the shipped pair, verified field by field from the run
+metadata: 60,000 steps, batch 192, lr 3e-3, bpe64, tau 0.75, `quant = 2`,
+`K_SHIFT = 2`, `W2_SHIFT = 3`, `AV_SHIFT = 2`, `SM_SHIFT = 3`, `T = 20`,
+`SM_TARGET = 8`. **The only difference is the normaliser.**
+
+| | seed 1 | seed 2 | mean | range |
+| --- | ---: | ---: | ---: | --- |
+| shipped (power-of-two) | 1.4133 | 1.4149 | **1.4141** | [1.4133, 1.4149] |
+| **exact normalisation** | **1.3957** | **1.3848** | **1.3902** | **[1.3848, 1.3957]** |
+
+nats per character, held out, lower is better.
+
+**-0.0239 nats/char, 1.7%, and the two groups do not overlap** - the worst
+exact run (1.3957) beats the best shipped run (1.4133) by 0.0176, against
+seed spreads of 0.0109 and 0.0016.
+
+The gap is *larger* at 60,000 steps than the 0.0111 the 12,000-step screen
+showed, so this is not a training-length artifact that washes out.
+
+For scale, against the other numbers in this journal:
+
+| change | worth |
+| --- | ---: |
+| **exact normalisation** | **-0.0239** |
+| ternarising the weights (`quant 1` -> `quant 2`) | +0.055 |
+| bpe64 over plain characters | -0.157 |
+| `AV_SHIFT` 4 -> 2 | -0.015 |
+| quadrupling the context (`T` 20 -> 85) | **+0.0214** (worse) |
+| widening the probability nibble | **0.000** |
+| seed noise | 0.002 - 0.019 |
+
+It is worth about *half* of what ternarising the weights costs, and it is the
+opposite sign to the context experiment - which spent +52% of a token's
+cycles to lose 0.0214 nats/char, where this spends +0.4% to gain 0.0239.
