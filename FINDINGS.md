@@ -2907,3 +2907,35 @@ FORWARD-PASS EQUIVALENCE: EXACT
 `N = 1`, `N = 4` and `N = 8` all report EXACT. Without this the QAT trainer
 could be training a model the cartridge does not run, and every loss number
 below would be decorative.
+
+## 9. Fresh dense controls, because the published baseline is not quite the
+## same model any more
+
+The baseline to beat is `1.4133 / 1.4149 nats/char`. Those two numbers were
+measured on two different implementations of the same forward pass: `final_av2`
+(1.4133, seed 1) was trained before the chunked attention rewrite and
+`t20_final_s2` (1.4149, seed 2) after it. The rewrite is proven
+forward-equivalent by `train/test_equiv.py`, but it changes the order of float
+reductions, so it changes the optimisation TRAJECTORY - the same recipe run on
+the two implementations lands in different places.
+
+The mixture work adds one more such change: `W1`/`W2`/`head` are stacked with
+an expert axis and the feed-forward matmul now runs on a flattened
+`(B*T, D)` tensor rather than `(B, T, D)`. The forward value is bit-identical
+(proved above, at `nexp = 1`, against the pre-MoE module), the gradients are
+not bit-identical, and 60,000 steps of that compounds.
+
+So two dense controls were run on **this** tree, same recipe, two seeds:
+
+| arm | code | seed | val nats/token | **val nats/char** |
+| --- | --- | ---: | ---: | ---: |
+| `final_av2` | pre-chunk | 1 | 2.0546 | 1.4133 |
+| `t20_final_s2` | post-chunk | 2 | 2.0568 | 1.4149 |
+| **`moe_dense60k_s1`** | **this tree** | **1** | **2.0381** | **1.4020** |
+| **`moe_dense60k_s2`** | **this tree** | **2** | **2.0491** | **1.4096** |
+
+This tree's dense model is **0.008 nats/char better on average** than the
+published pair, which is about the seed noise, and its own two seeds differ by
+0.0076. There is no claim here that anything improved - the point is that the
+mixture has to be compared against **1.4020**, the strongest dense number this
+tree produces, and not only against the 1.4133 in the README.
