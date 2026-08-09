@@ -21,3 +21,10 @@ sw_n2bal_s1                  step  9000  fit 2.2944  val 2.2728  density 0.5370 
 sw_n2bal_s1                  step  9500  fit 2.2900  val 2.2889  density 0.5373  1006s
 sw_n2bal_s1                  step 10000  fit 2.2693  val 2.2773  density 0.5376  1070s
 sw_n2bal_s1                  step 10500  fit 2.2750  val 2.2644  density 0.5366  1132s
+sw_n2bal_s1                  step 11000  fit 2.2645  val 2.2671  density 0.5365  1189s
+sw_n2bal_s1                  step 11500  fit 2.2408  val 2.2400  density 0.5368  1242s
+sw_n2bal_s1                  step 12000  fit 2.1630  val 2.1732  density 0.5368  1299s
+FINAL sw_n2bal_s1              fit 2.1667  val 2.1723  (uniform 4.1589)  nnz 81353/151552 = 0.5368
+route bal   N=8  load 0.125 0.124 0.127 0.125 0.126 0.125 0.124 0.124  (max/min = 1.03)
+sw_n8bal_s1                  step     1  fit 7.5804  val 7.6014  density 0.5511  7s
+sw_n8bal_s1                  step   500  fit 2.9686  val 2.9682  density 0.5505  101s
