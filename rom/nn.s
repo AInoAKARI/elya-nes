@@ -144,6 +144,22 @@ PMARK_COST = 12
 .endif
 .endmacro
 
+; The weight-stream bank switch, bracketed in situ.  The MoE plan is "one
+; expert streams per token", which is the same instruction sequence with a
+; different bank number, so what it costs INSIDE the token loop is the number
+; the plan lives or dies on.  Measured, not quoted from the MMC5 datasheet:
+; the datasheet's 6 cycles is the `sta $5114` alone and this body is a good
+; deal more than that.
+.macro BMARK v
+.ifdef BANKPROF
+    stx xsave2              ; 3
+    ldx #v                  ; 2
+    stx MARKER              ; 4
+    ldx xsave2              ; 3   = 12 cycles, A/Y/carry untouched
+.endif
+.endmacro
+BMARK_COST = 12
+
 ; ---- fixed pages in system RAM (constants, NOT bss - see nn.cfg) ----------
 ; The per-position arrays (SCORL, SCORH, EXPE, P4HI) are NCTX entries each, so
 ; they are sized by NCTX rather than by the T = 20 constants the first cut
@@ -1295,6 +1311,7 @@ read_header:
     lda (hptr),y
     cmp #$FF
     bne @ok
+    BMARK 50
     inc wbank
     lda wbank
     ora #$80
@@ -1303,6 +1320,7 @@ read_header:
     jsr hdr_advance
     ldy hy
     lda (hptr),y
+    BMARK 51
 @ok:
     sta npos
     iny

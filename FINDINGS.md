@@ -2448,3 +2448,53 @@ an original NES cart did not. One expert streams per token; the cycles per
 token barely move; the parameter count multiplies.
 
 Everything below is measured on this tree unless it says otherwise.
+
+## 1. What a bank switch costs inside the token loop: 71 cycles
+
+The plan is "one expert streams per token", and an expert is selected by
+choosing a different **bank number**, so the only per-token cost that could
+kill it is the bank switch. The MMC5 datasheet number - 6 cycles for
+`sta $5114` - is not that cost; it is the store alone.
+
+The shipping ROM already switches stream banks six times per token, at the
+`$FF` sentinel in `read_header`. A new `-DBANKPROF` build brackets that body
+in situ with markers 50/51 (`tools/run_bank_profile.py`), so this is measured
+on real tokens rather than counted by hand.
+
+```
+tokens measured           19
+bank switches per token   6 6 6 6 6 6 6 6 ...
+bank-switch body, 114 samples
+  raw interval        min 83  max 83  mean 83.00
+  minus one BMARK     min 71  max 71  mean 71.00 cycles
+  histogram           71:114          <- every sample identical
+bank switching is        426.0 cycles/token = 0.0382% of a token
+```
+
+**71 cycles, exactly, 114 times out of 114.** The hand count agrees to the
+cycle, which is worth writing down because it means the body has no
+data-dependent path:
+
+```
+inc wbank            5
+lda wbank            3
+ora #$80             2
+sta MMC5_PRG8000     4     <- the datasheet's 6-cycle "bank switch" is this line
+jsr chain_reset      6 + 18   (2 lda#/sta zp pairs, ldx #0, rts)
+jsr hdr_advance      6 + 19   (lda/clc/adc/sta/bne/rts)
+ldy hy               3
+lda (hptr),y         5     <- re-read the header row the sentinel displaced
+                    ---
+                     71
+```
+
+So the datasheet store is 4 of the 71 cycles that a switch actually costs
+here, and 71 cycles is 0.0064% of a 1,116,979-cycle token. Six of them per
+token is 0.038%. **Bank switching is not a constraint on this design.** If an
+expert change cost ten switches per token it would still be under 0.1%.
+
+Recorded honestly: the BANKPROF image's own token cost is 1,116,492 against
+the shipping build's 1,116,979, i.e. -487 cycles with no arithmetic change.
+That is the same code-motion-across-page-boundaries effect FINDINGS already
+records for a five-byte edit; the 71-cycle body is a direct interval
+measurement and does not depend on it.
