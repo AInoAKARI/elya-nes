@@ -2680,3 +2680,40 @@ probability is zero or not, so a wider budget costs it almost nothing at all.
 trained model is far peakier than random init, so its live-position count -
 and therefore its cost - is a different number, measured below once a trained
 wide-softmax model exists.
+
+## Cost on REAL scores: the shipped weights run through the wider kernel
+
+Random init is the worst case. The other end of the bracket is the shipped
+trained model - whose scores are peaky, because it was trained against the
+narrow softmax - run through the wide kernel. That isolates *what widening
+costs on realistic scores* from *what training against it does*, and it is
+the one comparison where the model is held exactly constant.
+
+`runs/final_av2_bpe64_tau0.75.npz`, seed token 1, `-DATTNPROF`, position 18:
+
+| | `SM_TARGET = 8` | `SM_TARGET = 16` | delta |
+| --- | ---: | ---: | ---: |
+| live positions per head | 1.31 | **1.54** | +18% |
+| AV multiply-adds hitting a zero | **86.93%** | **84.56%** | -2.4 pts |
+| **AV kernel** | **9,444** | **9,872** | **+428 (+4.5%)** |
+| AV section (incl. `av_patch`) | 22,089 | 22,514 | +425 |
+| softmax | 19,462 | 19,265 | **-197** |
+| QK kernel | 39,986 | 39,958 | -28 |
+| **token total** | **1,155,700** | **1,156,060** | **+360 (+0.031%)** |
+
+The 86.93% reproduces the attention journal's 86.9% exactly.
+
+**Widening the probability nibble from 3 bits to 4 costs 360 cycles in a
+1,155,700-cycle token: three hundredths of one percent.** The softmax kernel
+actually gets *cheaper* by 197 cycles, because `kk` is one smaller so its
+shift loop runs one fewer iteration per call. The whole net cost is the AV
+chain running 0.23 more units per head.
+
+This is the number the design predicted and it is the reason this change was
+worth trying at all: the context experiment cost +52% for its widening.
+This one costs +0.03%.
+
+**It is not yet an answer to whether it is worth anything.** These are
+scores from a model trained against `sum <= 8`; a model trained against
+`sum <= 16` will spread further and cost more, and the loss comparison is
+what decides. Both are measured below.
