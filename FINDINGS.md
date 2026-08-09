@@ -2516,3 +2516,98 @@ The `T = 20` figure is the 86.9% quoted in the attention journal, re-measured
 on a different seed set. **This is the cost side of the trade**: any change
 that lets more positions carry weight converts free zeros into real
 multiply-adds, and at `T = 85` there are 26x more of them to convert.
+
+## The design family, and the cycle cost of the options that were rejected
+
+The options in the brief were: more bits per probability, a shared exponent,
+log-domain accumulation, top-k with explicit indices. Two of those the kernel
+**already does**, and saying so is part of the answer:
+
+* **Shared exponent is the status quo.** `kk` - the power-of-two shift the
+  normaliser picks so that `S >> kk <= 8` - *is* a shared exponent across the
+  whole probability vector. There is nothing to add.
+* **Top-k with explicit indices is the status quo.** `av_patch` walks `P4HI`
+  and packs the positions with a nonzero nibble into the AV chain, so the
+  chain is already a sparse list of (position, probability) pairs. The limit
+  is not how the live positions are addressed; it is how few of them there
+  are, and that is set by the value resolution.
+
+That leaves "more bits per probability", which is a family rather than a
+single design, and it turns out to have a nearly free member.
+
+### The family: raise the budget, raise the product shift with it
+
+Let `SM_TARGET` be the sum the normaliser targets and `PMAX = SM_TARGET - 1`
+the per-position clamp. The attention accumulator is
+
+```
+acc = sum_t floor(p_t * v_t / 2^PMUL_SHIFT),   sum_t p_t <= SM_TARGET,  |v| <= 7
+```
+
+so `|acc| <= SM_TARGET * 7 / 2^PMUL_SHIFT`. Setting
+
+```
+PMUL_SHIFT = 2 + log2(SM_TARGET / 8)
+```
+
+holds that bound at **14 for every target** - which is the whole trick.
+`AV_SHIFT` does not move, the attention output keeps the range the ladder
+measured, and the product table's entries stay in the same band, so the AV
+chain's carry-free block barely moves. Computed from the tables themselves,
+not asserted:
+
+| SM_TARGET | PMUL_SHIFT | table max | carry-free block | acc bound | row fits one patched byte |
+| ---: | ---: | ---: | ---: | ---: | :---: |
+| **8** (shipped) | 2 | 25 | 10 | 14 | yes |
+| **16** | 3 | 27 | **9** | 14 | yes |
+| 32 | 4 | 27 | 9 | 14 | **no** (512-byte table) |
+
+`SM_TARGET = 32` is where the family stops being free: a probability is
+stored pre-shifted as `p<<4`, the low byte of its row in a page-aligned
+product table, and 32 rows do not fit one page. The packer refuses it; the
+trainer and the host reference still support it, so "would 32 have bought
+anything?" is answerable without building it.
+
+### What each option costs per multiply-add - MEASURED, not argued
+
+`rom/nn.s` under `-DATTNBENCH` now benches the two rejected forms alongside
+the two it already benched. The chains are the exact instruction sequences
+those designs need; the tables they index are stand-ins of the right shape,
+because every address in them is proven page-cross free and the 6502's timing
+here is therefore data independent. Only cycles are being measured.
+`out/ATTN_BENCH_ALT.txt`:
+
+| AV form | cycles / multiply-add | vs shipping |
+| --- | ---: | ---: |
+| **shipping: self-modified product row** | **8.00** | 1.00x |
+| no-SMC: row in a zero page pointer | 9.00 | 1.13x |
+| **log-domain** (`lda logv,x / adc #logp / tax / lda anti,x` then a 16-bit add) | **27.00** | **3.38x** |
+| **wide 16-bit product** (a full byte of probability, so every element needs a 16-bit add) | **26.00** | **3.25x** |
+| **widen the nibble + raise the product shift** | **8.00** | **1.00x** |
+
+The first four are measured over a clean 1..10 or 1..20 sweep with a constant
+27.00 / 26.00 / 9.00 / 8.00 first difference at every point. The fifth is
+8.00 because it is the *same chain* - `ldx VBASE+t*256,y ; adc tbl_pv,x` -
+against a different 256-byte table. Widening the probability from 3 bits to 4
+does not change the inner loop at all.
+
+Both rejected forms fail for the same structural reason DESIGN.md gives for
+the ternary gather: they evict the accumulator from `A`. Log-domain needs `A`
+for the antilog index; the wide product needs `A` for both halves of a 16-bit
+add. The shipping form keeps `A` for the whole chain and pays 4+4.
+
+**The shipping AV sweep in this build is byte-identical to the committed
+`out/ATTN_BENCH.txt`.** The no-SMC sweep moved by a constant +0.98 cycles per
+call with an unchanged 9.00 slope - the added bench code shifted a driver
+branch relative to its page boundary, the same "where the code landed" effect
+recorded for the +5-byte result-block fix. It is in the driver, not the
+kernel.
+
+### So the cost of `SM_TARGET = 16` is entirely in AV sparsity
+
+Nothing in the softmax kernel changes cost: the `kk` loop compares against 17
+instead of 9, and `tbl_p` holds `min(e>>kk, 15) << 4` instead of
+`min(e>>kk, 7) << 4`. Same instructions, same table sizes. The AV inner loop
+does not change either. The **only** cost is that more positions carry a
+nonzero nibble, so more AV chain units run - and that is exactly the 87.54% /
+96.29% zero-multiply figure measured above, being spent.

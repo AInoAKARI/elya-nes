@@ -29,8 +29,14 @@ def main():
         elif v == 2 and start is not None:
             per.append(cycles(t - start) / float(REP))
             start = None
+    # window layout: 20 SMC-AV, 20 pointer-AV, BENCH_ALT_N log-domain,
+    # BENCH_ALT_N wide-16-bit, 1 QK.  Older ATTNBENCH images stop after the
+    # first two sweeps plus QK, so the alternates are optional.
+    ALT = 10
     qk = per.pop() if len(per) > 40 else None
     ptr = per[20:40] if len(per) >= 40 else None
+    logd = per[40:40 + ALT] if len(per) >= 40 + ALT else None
+    wide = per[40 + ALT:40 + 2 * ALT] if len(per) >= 40 + 2 * ALT else None
     per = per[:20]
     print("AV kernel, isolated   (call frame + %d-cycle driver included)" % DRIVER)
     print("  %-4s %10s %10s %10s" % ("MACs", "cyc/call", "kernel", "cyc/MAC"))
@@ -67,6 +73,26 @@ def main():
         sl = (ptr[-1] - ptr[0]) / float(len(ptr) - 1)
         print("  endpoint slope %.4f cycles/MAC "
               "(self-modified form: see above)" % sl)
+    for nm, arr, desc in (("log-domain", logd,
+                           "ldx V,y / lda logv,x / adc #logp / tax / "
+                           "lda anti,x / clc / adc totL / sta totL / "
+                           "bcc+inc totH"),
+                          ("wide 16-bit", wide,
+                           "ldx V,y / clc / lda pvlo,x / adc totL / sta totL "
+                           "/ lda pvhi,x / adc totH / sta totH")):
+        if not arr:
+            continue
+        print("\nREJECTED FORM: %s" % nm)
+        print("  %s" % desc)
+        print("  %-4s %10s %10s %10s" % ("MACs", "cyc/call", "kernel", "d"))
+        prev = None
+        for i, c in enumerate(arr):
+            d = "" if prev is None else "%+.2f" % (c - prev)
+            print("  %-4d %10.2f %10.2f %10s" % (i + 1, c, c - DRIVER, d))
+            prev = c
+        sl = (arr[-1] - arr[0]) / float(len(arr) - 1)
+        print("  endpoint slope %.4f cycles/MAC" % sl)
+
     if qk is not None:
         k = qk - 10          # ldy/dec/bne driver
         print("\nQK kernel, isolated (fixed 32 MACs)")

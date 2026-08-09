@@ -922,6 +922,79 @@ avpent_hi:
 avptr_call:
     jmp (avp)
 
+; --- the two forms this port REJECTED, benched so the rejection is measured -
+;
+; Both are ways of giving a probability more than four bits.  Neither is
+; built into the shipping kernel; they exist here only so that "we rejected
+; log-domain accumulation because it costs N cycles per multiply-add" is a
+; measurement rather than an opinion.  The chains below are the exact
+; INSTRUCTION SEQUENCES those designs need; the tables they index are stand-in
+; page-aligned tables of the right shape, because the 6502's timing here is
+; data independent - every address involved is proven page-cross free, so the
+; cycle count of the form does not depend on what the tables contain.  Only
+; the cycle count is being measured.
+BENCH_ALT_N = 10
+
+; (1) LOG-DOMAIN: p and v are added as logs and turned back into a linear
+;     value before accumulating, which is the standard way to get a wide
+;     dynamic range out of narrow tables.  It evicts the accumulator from A
+;     on every element, which is the thing DESIGN.md says costs everything.
+avlog_chain:
+.repeat BENCH_ALT_N, u
+    .ident (.sprintf ("avlu%02d", u)):
+    ldx VBASE + (BENCH_ALT_N - 1 - u) * 256, y   ; 4  the value nibble
+    lda tbl_q2, x                                ; 4  stands in for log|v|
+    adc #$00                                     ; 2  + log p, patched
+    tax                                          ; 2
+    lda tbl_clamp, x                             ; 4  stands in for antilog
+    clc                                          ; 2
+    adc totL                                     ; 3
+    sta totL                                     ; 3
+    bcc *+4                                      ; 2
+    inc totH                                     ; 5
+.endrepeat
+avlu_none:
+    rts
+
+; (2) WIDE: the probability keeps a full byte, so the product no longer fits
+;     one table entry and every element needs a 16-bit add.  This is the
+;     honest form of "just use more bits per probability".
+avwide_chain:
+.repeat BENCH_ALT_N, u
+    .ident (.sprintf ("avwu%02d", u)):
+    ldx VBASE + (BENCH_ALT_N - 1 - u) * 256, y   ; 4
+    clc                                          ; 2
+    lda tbl_q2, x                                ; 4  product low byte
+    adc totL                                     ; 3
+    sta totL                                     ; 3
+    lda tbl_clamp, x                             ; 4  product high byte
+    adc totH                                     ; 3
+    sta totH                                     ; 3
+.endrepeat
+avwu_none:
+    rts
+
+avlent_lo:
+    .byte <avlu_none
+.repeat BENCH_ALT_N, n
+    .byte <(.ident (.sprintf ("avlu%02d", BENCH_ALT_N - 1 - n)))
+.endrepeat
+avlent_hi:
+    .byte >avlu_none
+.repeat BENCH_ALT_N, n
+    .byte >(.ident (.sprintf ("avlu%02d", BENCH_ALT_N - 1 - n)))
+.endrepeat
+avwent_lo:
+    .byte <avwu_none
+.repeat BENCH_ALT_N, n
+    .byte <(.ident (.sprintf ("avwu%02d", BENCH_ALT_N - 1 - n)))
+.endrepeat
+avwent_hi:
+    .byte >avwu_none
+.repeat BENCH_ALT_N, n
+    .byte >(.ident (.sprintf ("avwu%02d", BENCH_ALT_N - 1 - n)))
+.endrepeat
+
 ; --- isolated slope/intercept for the attention kernels --------------------
 ; Calls the REAL chains (not copies) over t-counts 1..NCTX so the per-MAC
 ; slope and the per-call intercept separate, the way BENCH does for the
@@ -1004,6 +1077,61 @@ attn_bench:
     lda di
     cmp #NCTX
     bcc @l2
+
+    ; the two rejected forms, same driver, so the slopes are comparable
+    lda #0
+    sta di
+@l3:
+    ldy di
+    iny
+    lda avlent_lo,y
+    sta avp
+    lda avlent_hi,y
+    sta avp+1
+    lda #BENCH_REP
+    sta cnt
+    MARKX M_BEGIN
+@r3:
+    lda #0                  ; 2
+    sta totL                ; 3
+    sta totH                ; 3
+    ldy #0                  ; 2
+    clc                     ; 2
+    jsr av_call             ; 6 + chain
+    dec cnt                 ; 5
+    bne @r3                 ; 3
+    MARKX M_END
+    inc di
+    lda di
+    cmp #BENCH_ALT_N
+    bcc @l3
+
+    lda #0
+    sta di
+@l4:
+    ldy di
+    iny
+    lda avwent_lo,y
+    sta avp
+    lda avwent_hi,y
+    sta avp+1
+    lda #BENCH_REP
+    sta cnt
+    MARKX M_BEGIN
+@r4:
+    lda #0                  ; 2
+    sta totL                ; 3
+    sta totH                ; 3
+    ldy #0                  ; 2
+    clc                     ; 2
+    jsr av_call             ; 6 + chain
+    dec cnt                 ; 5
+    bne @r4                 ; 3
+    MARKX M_END
+    inc di
+    lda di
+    cmp #BENCH_ALT_N
+    bcc @l4
 
     ; QK does a fixed NDHEAD MACs, so there is no slope to fit - only the
     ; per-call cost.  Driver here is 10 cycles (ldy/dec/bne).

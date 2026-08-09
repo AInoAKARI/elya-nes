@@ -1,0 +1,4 @@
+smx_a_t8_sh3_s1              step     1  fit 8.1972  val 8.2335  density 0.5503  4s
+smx_a_t8_sh3_s1              step   500  fit 3.1184  val 3.1203  density 0.5487  48s
+smx_a_t8_sh3_s1              step  1000  fit 2.9077  val 2.9075  density 0.5472  92s
+smx_a_t8_sh3_s1              step  1500  fit 2.7262  val 2.7247  density 0.5468  137s
