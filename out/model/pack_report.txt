@@ -1,5 +1,6 @@
 rows                         1408
 nnz                          127396
+nnz_per_token                [52207, 52207, 52207, 52207]
 weights_per_token            102400
 weights_on_cart              249856
 nexp                         4

@@ -32,3 +32,4 @@ sw_n4bal_s1                  step  1500  fit 2.6219  val 2.6144  density 0.5472 
 sw_n4bal_s1                  step  2000  fit 2.5038  val 2.5196  density 0.5465  295s
 sw_n4bal_s1                  step  2500  fit 2.4300  val 2.4377  density 0.5460  365s
 sw_n4bal_s1                  step  3000  fit 2.3837  val 2.3991  density 0.5459  433s
+sw_n4bal_s1                  step  3500  fit 2.3622  val 2.3776  density 0.5450  501s

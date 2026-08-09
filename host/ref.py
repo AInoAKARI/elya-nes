@@ -598,8 +598,15 @@ def pack_streams(model, outdir):
     nnz = sum(nnz_of(c) for c in shared_chunks) + sum(
         sum(nnz_of(rows_of(ms)) for kind, ms in model.chunks(e) if kind == "E")
         for e in range(ne))
+    nnz_sh = sum(nnz_of(c) for c in shared_chunks)
+    nnz_ex = [sum(nnz_of(rows_of(ms)) for kind, ms in model.chunks(e)
+                  if kind == "E") for e in range(ne)]
     return {"moe": 1, "nexp": ne, "shared_banks": nsh, "expert_banks": per_exp,
             "banks": len(stream) // BANK, "nnz": nnz,
+            "nnz_shared": nnz_sh, "nnz_expert": nnz_ex,
+            # index bytes actually STREAMED for one token: the shared rows plus
+            # the one expert the router picked.  The cartridge holds far more.
+            "nnz_per_token": [nnz_sh + x for x in nnz_ex],
             "header_bytes": max(len(h) for h in hdr_bytes),
             "crossings": max(len(h) for h in hdr_bytes) // 4 - ROWS_PER_TOKEN}
 
@@ -678,6 +685,7 @@ def pack(model, outdir):
     return {
         "rows": ROWS_PER_TOKEN,
         "nnz": lay["nnz"],
+        "nnz_per_token": lay.get("nnz_per_token", lay["nnz"]),
         "weights_per_token": weights,
         "weights_on_cart": total,
         "nexp": ne,

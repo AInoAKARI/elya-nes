@@ -2740,3 +2740,46 @@ five-byte edit with no arithmetic change.
 So the honest statement is: **the mixture's cost is 448 cycles a token by
 construction and by direct per-switch measurement, and that is below the
 ~1,000-cycle floor that moving code around in this ROM produces anyway.**
+
+### The ceiling on expert count is 16, and it does not move the token cost
+
+The layout the packer computes, dry-run at several expert counts:
+
+| N | ternary weights on the cartridge | stream banks | cartridge banks | bank switches/token |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 102,400 | 7 | 12 | 7 |
+| 4 | 249,856 | 31 | 38 | 13 |
+| 8 | 446,464 | 55 | 66 | 13 |
+| **16** | **839,680** | **103** | **122** | **13** |
+| 17 | 937,984 | 109 | **129** | - refuses |
+
+N = 17 needs 129 banks and the packer refuses rather than emitting an image
+whose top bank cannot be addressed. So **16 experts, 839,680 ternary weights -
+8.2x the dense model - is what this cartridge holds**, and the number of bank
+switches a token does is 13 at every one of those counts. Capacity is bought
+with cartridge, not with cycles; that is the whole claim and it is now
+measured rather than asserted.
+
+Six of the 24 expert banks at N = 4 are part-empty, because every region chunk
+starts at a bank boundary - the ROM's stream offset is implicit and
+`chain_reset` puts it back to 0 on a switch, so a region can only be resumed
+at the start of a bank. That waste is recorded and was accepted: it costs
+banks, of which there are 116 spare, to avoid a sentinel that carries a
+resume offset.
+
+### The mixture profiles identically to the dense build
+
+`out/MOE_CONTROL_PROFILE.txt`, 4 identical experts, against
+`out/FINAL_PROFILE.txt`:
+
+| stage, pos 0 | dense | mixture control |
+| --- | ---: | ---: |
+| ternary `gather_row` | 851,108 | 851,285 |
+| attention | 24,287 | 24,119 |
+| everything else | 209,103 | 209,252 |
+| cycles per MAC | 16.30 | 16.31 |
+| cycles per WEIGHT | 8.31 | 8.31 |
+
+Same work, same rate. The mixture streams 52,207 index bytes a token out of
+127,396 on the cartridge, which is the sentence this whole design exists to
+make true.
