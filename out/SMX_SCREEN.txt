@@ -1,0 +1,13 @@
+arm                    seed1    seed2    mean     spread   density  steps
+f_t8_sh3_exact         1.5157   1.5179   1.5168   0.0021   0.5375   12000
+g_t16_sh3_exact        1.5187   1.5186   1.5187   0.0001   0.5372   12000
+c_t32_sh3_pow2         1.5274   1.5261   1.5267   0.0012   0.5366   12000
+a_t8_sh3_pow2          1.5283   1.5275   1.5279   0.0008   0.5373   12000
+d_t16_sh2_pow2         1.5326   1.5260   1.5293   0.0066   0.5371   12000
+e_t8_sh2_pow2          1.5225   1.5419   1.5322   0.0193   0.5386   12000
+b_t16_sh3_pow2         1.5282   1.5387   1.5335   0.0105   0.5358   12000
+
+nats per character, held out, lower is better.
+shipped T = 20 at 60,000 steps: 1.4133 / 1.4149
+NOTE: this screen is at reduced steps, so it is comparable ACROSS
+ARMS only.  It is not comparable to the 60,000-step baseline.

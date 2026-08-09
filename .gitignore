@@ -11,3 +11,4 @@ out/sv.nes
 out/sv.o
 out/*.ldlog
 train/.smx_run.sh
+train/.smx_final_run.sh

@@ -7,3 +7,20 @@ smx_a_t8_sh3_pow2_s2         step  2500  fit 2.5694  val 2.5745  density 0.5450 
 smx_a_t8_sh3_pow2_s2         step  3000  fit 2.5296  val 2.5430  density 0.5441  262s
 smx_a_t8_sh3_pow2_s2         step  3500  fit 2.4884  val 2.5072  density 0.5433  307s
 smx_a_t8_sh3_pow2_s2         step  4000  fit 2.4890  val 2.4805  density 0.5414  356s
+smx_a_t8_sh3_pow2_s2         step  4500  fit 2.4467  val 2.4495  density 0.5412  406s
+smx_a_t8_sh3_pow2_s2         step  5000  fit 2.4212  val 2.4159  density 0.5404  455s
+smx_a_t8_sh3_pow2_s2         step  5500  fit 2.4234  val 2.4311  density 0.5385  499s
+smx_a_t8_sh3_pow2_s2         step  6000  fit 2.4237  val 2.4178  density 0.5382  544s
+smx_a_t8_sh3_pow2_s2         step  6500  fit 2.3995  val 2.4149  density 0.5382  586s
+smx_a_t8_sh3_pow2_s2         step  7000  fit 2.3882  val 2.3928  density 0.5377  631s
+smx_a_t8_sh3_pow2_s2         step  7500  fit 2.3602  val 2.3731  density 0.5364  674s
+smx_a_t8_sh3_pow2_s2         step  8000  fit 2.3770  val 2.3749  density 0.5372  719s
+smx_a_t8_sh3_pow2_s2         step  8500  fit 2.3629  val 2.3621  density 0.5369  762s
+smx_a_t8_sh3_pow2_s2         step  9000  fit 2.3688  val 2.3586  density 0.5368  806s
+smx_a_t8_sh3_pow2_s2         step  9500  fit 2.3665  val 2.3689  density 0.5361  850s
+smx_a_t8_sh3_pow2_s2         step 10000  fit 2.3628  val 2.3741  density 0.5353  894s
+smx_a_t8_sh3_pow2_s2         step 10500  fit 2.3530  val 2.3404  density 0.5353  937s
+smx_a_t8_sh3_pow2_s2         step 11000  fit 2.3324  val 2.3239  density 0.5359  981s
+smx_a_t8_sh3_pow2_s2         step 11500  fit 2.3040  val 2.2950  density 0.5350  1025s
+smx_a_t8_sh3_pow2_s2         step 12000  fit 2.2080  val 2.2259  density 0.5360  1068s
+FINAL smx_a_t8_sh3_pow2_s2     fit 2.2175  val 2.2206  (uniform 4.1589)  nnz 54882/102400 = 0.5360

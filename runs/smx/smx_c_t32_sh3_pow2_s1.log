@@ -1,0 +1,26 @@
+smx_c_t32_sh3_pow2_s1        step     1  fit 8.3130  val 8.3545  density 0.5503  3s
+smx_c_t32_sh3_pow2_s1        step   500  fit 3.1324  val 3.1361  density 0.5489  41s
+smx_c_t32_sh3_pow2_s1        step  1000  fit 2.8916  val 2.8888  density 0.5474  78s
+smx_c_t32_sh3_pow2_s1        step  1500  fit 2.7274  val 2.7205  density 0.5462  115s
+smx_c_t32_sh3_pow2_s1        step  2000  fit 2.6279  val 2.6429  density 0.5458  151s
+smx_c_t32_sh3_pow2_s1        step  2500  fit 2.5607  val 2.5636  density 0.5463  186s
+smx_c_t32_sh3_pow2_s1        step  3000  fit 2.5135  val 2.5231  density 0.5461  222s
+smx_c_t32_sh3_pow2_s1        step  3500  fit 2.4812  val 2.4971  density 0.5441  257s
+smx_c_t32_sh3_pow2_s1        step  4000  fit 2.4640  val 2.4554  density 0.5435  292s
+smx_c_t32_sh3_pow2_s1        step  4500  fit 2.4402  val 2.4481  density 0.5421  327s
+smx_c_t32_sh3_pow2_s1        step  5000  fit 2.4196  val 2.4114  density 0.5416  361s
+smx_c_t32_sh3_pow2_s1        step  5500  fit 2.4067  val 2.4183  density 0.5404  396s
+smx_c_t32_sh3_pow2_s1        step  6000  fit 2.4171  val 2.4052  density 0.5396  431s
+smx_c_t32_sh3_pow2_s1        step  6500  fit 2.3965  val 2.4101  density 0.5395  465s
+smx_c_t32_sh3_pow2_s1        step  7000  fit 2.3720  val 2.3815  density 0.5383  500s
+smx_c_t32_sh3_pow2_s1        step  7500  fit 2.3770  val 2.3910  density 0.5378  535s
+smx_c_t32_sh3_pow2_s1        step  8000  fit 2.3530  val 2.3608  density 0.5380  569s
+smx_c_t32_sh3_pow2_s1        step  8500  fit 2.3500  val 2.3530  density 0.5381  604s
+smx_c_t32_sh3_pow2_s1        step  9000  fit 2.3555  val 2.3536  density 0.5367  639s
+smx_c_t32_sh3_pow2_s1        step  9500  fit 2.3453  val 2.3425  density 0.5374  673s
+smx_c_t32_sh3_pow2_s1        step 10000  fit 2.3461  val 2.3593  density 0.5372  708s
+smx_c_t32_sh3_pow2_s1        step 10500  fit 2.3357  val 2.3258  density 0.5370  742s
+smx_c_t32_sh3_pow2_s1        step 11000  fit 2.3445  val 2.3400  density 0.5373  777s
+smx_c_t32_sh3_pow2_s1        step 11500  fit 2.3067  val 2.3002  density 0.5371  811s
+smx_c_t32_sh3_pow2_s1        step 12000  fit 2.2105  val 2.2198  density 0.5366  845s
+FINAL smx_c_t32_sh3_pow2_s1    fit 2.2142  val 2.2204  (uniform 4.1589)  nnz 54950/102400 = 0.5366

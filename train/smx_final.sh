@@ -6,19 +6,20 @@
 # 192, lr 3e-3, bpe64, tau 0.75, AV_SHIFT 2 - so this script uses exactly
 # those settings and changes only the softmax knobs.
 #
-#   train/smx_final.sh <SM_TARGET> <SM_SHIFT> [seeds] [steps]
+#   train/smx_final.sh <SM_TARGET> <SM_SHIFT> <SM_NORM> [seeds] [steps]
 set -e
 cd "$(dirname "$0")/.."
-TGT=${1:?usage: smx_final.sh <SM_TARGET> <SM_SHIFT> [seeds] [steps]}
+TGT=${1:?usage: smx_final.sh <SM_TARGET> <SM_SHIFT> <SM_NORM> [seeds] [steps]}
 SH=${2:?}
-SEEDS=${3:-"1 2"}
-STEPS=${4:-60000}
+NM=${3:?}
+SEEDS=${4:-"1 2"}
+STEPS=${5:-60000}
 OUT=runs
 for S in $SEEDS; do
-    TAG="smxfinal_t${TGT}_sh${SH}_s${S}"
+    TAG="smxfinal_t${TGT}_sh${SH}_${NM}_s${S}"
     [ -f "$OUT/$TAG.json" ] && { echo "skip $TAG"; continue; }
     echo "launch $TAG"
-    NES_SM_TARGET=$TGT NES_SM_SHIFT=$SH \
+    NES_SM_TARGET=$TGT NES_SM_SHIFT=$SH NES_SM_NORM=$NM \
         python3 train/train_nes.py --vocab bpe64 --tau 0.75 \
         --steps "$STEPS" --seed "$S" --name "$TAG" --out "$OUT" \
         > "$OUT/$TAG.log" 2>&1 &

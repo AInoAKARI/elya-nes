@@ -2751,3 +2751,89 @@ not once per multiply-add. At ~2.6 live positions per head that is roughly
 32 is therefore buildable and merely inconvenient (`P4HI` would have to hold
 `p` rather than `p<<4`). Whether it is worth building is what the screen's
 arm C decides.
+
+# THE SCREEN: the diagnosis was pointing at the wrong thing
+
+Seven arms, two seeds each, 12,000 steps, `T = 20`, bpe64, tau 0.75 - the same
+recipe as the shipped model and the same screening budget the context ladder
+used. `out/SMX_SCREEN.txt`:
+
+| arm | what changed | seed 1 | seed 2 | **mean** | seed spread |
+| --- | --- | ---: | ---: | ---: | ---: |
+| **f** | budget 8, **exact normalisation** | 1.5157 | 1.5179 | **1.5168** | 0.0021 |
+| **g** | budget 16, **exact normalisation** | 1.5187 | 1.5186 | **1.5187** | 0.0001 |
+| c | budget **32**, pow2 | 1.5274 | 1.5261 | 1.5267 | 0.0012 |
+| **a** | **nothing (baseline: budget 8, pow2)** | 1.5283 | 1.5275 | **1.5279** | 0.0008 |
+| d | budget 16 + finer exp table | 1.5326 | 1.5260 | 1.5293 | 0.0066 |
+| e | finer exp table alone | 1.5225 | 1.5419 | 1.5322 | 0.0193 |
+| b | budget **16**, pow2 | 1.5282 | 1.5387 | 1.5335 | 0.0105 |
+
+nats per character, held out, lower is better.
+
+**The control reproduces.** Arm a is 1.5279 against the context journal's
+1.5292 for `T = 20` at the same 12,000 steps - 0.0013 apart, on a different
+tree and a different seed set.
+
+## 1. Widening the probability nibble buys NOTHING
+
+This is the thing the diagnosis said to fix, and it does not work.
+
+```
+budget  8 (3 bits, shipped)   1.5279
+budget 16 (4 bits)            1.5335    WORSE by 0.0056
+budget 32 (5 bits)            1.5267    better by 0.0012
+```
+
+Not monotone, spread over 0.0068 in total, and every one of those gaps is
+the size of the noisier arms' own seed spread (b's is 0.0105, larger than any
+difference in the column). Doubling and quadrupling the number of positions
+the softmax can name does not move the loss.
+
+**"A 4-bit probability nibble cannot represent a distribution over 85 things"
+was a true statement about the representation and a false statement about
+what was limiting the model.** It is refuted here as the binding constraint
+at `T = 20`, by the direct experiment, at two seeds per arm.
+
+## 2. A finer exp table buys nothing either
+
+Halving `SM_SHIFT` doubles the score resolution the exp table can see, for
+zero cycles. Arm e is 1.5322 with a seed spread of **0.0193** - the widest in
+the screen and wider than any effect being looked for. Arm d, which is the
+finer table on top of budget 16, is 1.5293. Neither beats doing nothing.
+
+## 3. What DOES work is the normaliser, and it was not on the list
+
+The power-of-two normaliser picks the smallest `kk` with `S >> kk <= 8`, so
+the **realised** sum lands anywhere in `(4, 8]`. Measured on the shipped
+model that is a sum of 7 in 57.7% of evaluations and 4 in 25.4%: a quarter of
+the time the softmax is running on **half its budget**, and which half is an
+accident of where `S` fell relative to a power of two.
+
+Replacing it with `p_t = min(e_t * 8 // S, 7)` - same 3-bit nibble, same
+budget, same everything else - is worth **0.0111 nats/char**, and the two
+arms do not overlap:
+
+```
+budget 8, pow2   [1.5275, 1.5283]
+budget 8, exact  [1.5157, 1.5179]        gap 0.0096 at the boundary
+```
+
+against seed spreads of 0.0008 and 0.0021. It reproduces at budget 16 too
+(arm g, 1.5187 vs arm b's 1.5335 - the same knob worth 0.0148 there).
+
+**And the two do not compose.** f (budget 8 + exact) is 1.5168, g (budget 16
++ exact) is 1.5187. Once the normaliser stops wasting the budget, spending
+more bits on the budget makes it very slightly *worse*, though 0.0019 is
+inside f's own seed spread. The honest reading is that they are equal and the
+extra bits are free of benefit rather than harmful.
+
+The leak was never the width of the nibble. It was that a shared exponent
+throws away up to one bit of a three-bit quantity, every time.
+
+## What this means for the brief's option list
+
+The brief listed "a shared exponent" as an option to weigh. It was already
+implemented - `kk` **is** the shared exponent - and it turns out to be the
+thing that was costing, not the thing that could help. The measurement that
+mattered was not "how many bits does a probability get" but "how much of the
+budget does the normaliser actually hand out".

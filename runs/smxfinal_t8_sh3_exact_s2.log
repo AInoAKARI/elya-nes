@@ -1,0 +1,5 @@
+smxfinal_t8_sh3_exact_s2     step     1  fit 7.7691  val 7.7817  density 0.5491  1s
+smxfinal_t8_sh3_exact_s2     step   500  fit 3.1249  val 3.1230  density 0.5483  13s
+smxfinal_t8_sh3_exact_s2     step  1000  fit 2.9049  val 2.9054  density 0.5474  25s
+smxfinal_t8_sh3_exact_s2     step  1500  fit 2.7439  val 2.7385  density 0.5474  37s
+smxfinal_t8_sh3_exact_s2     step  2000  fit 2.6322  val 2.6412  density 0.5460  49s

@@ -1,2 +1,15 @@
 launch smx_a_t8_sh3_pow2_s1
 launch smx_a_t8_sh3_pow2_s2
+launch smx_b_t16_sh3_pow2_s1
+launch smx_b_t16_sh3_pow2_s2
+launch smx_c_t32_sh3_pow2_s1
+launch smx_c_t32_sh3_pow2_s2
+launch smx_d_t16_sh2_pow2_s1
+launch smx_d_t16_sh2_pow2_s2
+launch smx_e_t8_sh2_pow2_s1
+launch smx_e_t8_sh2_pow2_s2
+launch smx_f_t8_sh3_exact_s1
+launch smx_f_t8_sh3_exact_s2
+launch smx_g_t16_sh3_exact_s1
+launch smx_g_t16_sh3_exact_s2
+screen complete
