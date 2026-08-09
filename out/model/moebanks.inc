@@ -61,6 +61,54 @@
     .incbin "out/model/stream.bin", $3A000, $2000
 .segment "STREAM30"
     .incbin "out/model/stream.bin", $3C000, $2000
+.segment "STREAM31"
+    .incbin "out/model/stream.bin", $3E000, $2000
+.segment "STREAM32"
+    .incbin "out/model/stream.bin", $40000, $2000
+.segment "STREAM33"
+    .incbin "out/model/stream.bin", $42000, $2000
+.segment "STREAM34"
+    .incbin "out/model/stream.bin", $44000, $2000
+.segment "STREAM35"
+    .incbin "out/model/stream.bin", $46000, $2000
+.segment "STREAM36"
+    .incbin "out/model/stream.bin", $48000, $2000
+.segment "STREAM37"
+    .incbin "out/model/stream.bin", $4A000, $2000
+.segment "STREAM38"
+    .incbin "out/model/stream.bin", $4C000, $2000
+.segment "STREAM39"
+    .incbin "out/model/stream.bin", $4E000, $2000
+.segment "STREAM40"
+    .incbin "out/model/stream.bin", $50000, $2000
+.segment "STREAM41"
+    .incbin "out/model/stream.bin", $52000, $2000
+.segment "STREAM42"
+    .incbin "out/model/stream.bin", $54000, $2000
+.segment "STREAM43"
+    .incbin "out/model/stream.bin", $56000, $2000
+.segment "STREAM44"
+    .incbin "out/model/stream.bin", $58000, $2000
+.segment "STREAM45"
+    .incbin "out/model/stream.bin", $5A000, $2000
+.segment "STREAM46"
+    .incbin "out/model/stream.bin", $5C000, $2000
+.segment "STREAM47"
+    .incbin "out/model/stream.bin", $5E000, $2000
+.segment "STREAM48"
+    .incbin "out/model/stream.bin", $60000, $2000
+.segment "STREAM49"
+    .incbin "out/model/stream.bin", $62000, $2000
+.segment "STREAM50"
+    .incbin "out/model/stream.bin", $64000, $2000
+.segment "STREAM51"
+    .incbin "out/model/stream.bin", $66000, $2000
+.segment "STREAM52"
+    .incbin "out/model/stream.bin", $68000, $2000
+.segment "STREAM53"
+    .incbin "out/model/stream.bin", $6A000, $2000
+.segment "STREAM54"
+    .incbin "out/model/stream.bin", $6C000, $2000
 .segment "HEADERS0"
     .incbin "out/model/headers_e0.bin"
 .segment "TABLES0"
@@ -168,3 +216,119 @@ tbl_exp_e3: .incbin "out/model/tbl_exp.bin"
     .assert tbl_blkcnt_e3 = tbl_blkcnt, error, "expert 3 table copy moved"
     .assert tbl_step_e3 = tbl_step, error, "expert 3 table copy moved"
     .assert tbl_exp_e3 = tbl_exp, error, "expert 3 table copy moved"
+.segment "HEADERS4"
+    .incbin "out/model/headers_e4.bin"
+.segment "TABLES4"
+    .align $100
+tbl_mul_e4: .incbin "out/model/tbl_mul.bin"
+    .align $100
+tbl_q2_e4: .incbin "out/model/tbl_q2.bin"
+    .align $100
+tbl_q3_e4: .incbin "out/model/tbl_q3.bin"
+    .align $100
+tbl_q4_e4: .incbin "out/model/tbl_q4.bin"
+    .align $100
+tbl_clamp_e4: .incbin "out/model/tbl_clamp.bin"
+    .align $100
+tbl_entoff_e4: .incbin "out/model/tbl_entoff.bin"
+    .align $100
+tbl_blkcnt_e4: .incbin "out/model/tbl_blkcnt.bin"
+    .align $100
+tbl_step_e4: .incbin "out/model/tbl_step.bin"
+tbl_exp_e4: .incbin "out/model/tbl_exp.bin"
+    .assert tbl_mul_e4 = tbl_mul, error, "expert 4 table copy moved"
+    .assert tbl_q2_e4 = tbl_q2, error, "expert 4 table copy moved"
+    .assert tbl_q3_e4 = tbl_q3, error, "expert 4 table copy moved"
+    .assert tbl_q4_e4 = tbl_q4, error, "expert 4 table copy moved"
+    .assert tbl_clamp_e4 = tbl_clamp, error, "expert 4 table copy moved"
+    .assert tbl_entoff_e4 = tbl_entoff, error, "expert 4 table copy moved"
+    .assert tbl_blkcnt_e4 = tbl_blkcnt, error, "expert 4 table copy moved"
+    .assert tbl_step_e4 = tbl_step, error, "expert 4 table copy moved"
+    .assert tbl_exp_e4 = tbl_exp, error, "expert 4 table copy moved"
+.segment "HEADERS5"
+    .incbin "out/model/headers_e5.bin"
+.segment "TABLES5"
+    .align $100
+tbl_mul_e5: .incbin "out/model/tbl_mul.bin"
+    .align $100
+tbl_q2_e5: .incbin "out/model/tbl_q2.bin"
+    .align $100
+tbl_q3_e5: .incbin "out/model/tbl_q3.bin"
+    .align $100
+tbl_q4_e5: .incbin "out/model/tbl_q4.bin"
+    .align $100
+tbl_clamp_e5: .incbin "out/model/tbl_clamp.bin"
+    .align $100
+tbl_entoff_e5: .incbin "out/model/tbl_entoff.bin"
+    .align $100
+tbl_blkcnt_e5: .incbin "out/model/tbl_blkcnt.bin"
+    .align $100
+tbl_step_e5: .incbin "out/model/tbl_step.bin"
+tbl_exp_e5: .incbin "out/model/tbl_exp.bin"
+    .assert tbl_mul_e5 = tbl_mul, error, "expert 5 table copy moved"
+    .assert tbl_q2_e5 = tbl_q2, error, "expert 5 table copy moved"
+    .assert tbl_q3_e5 = tbl_q3, error, "expert 5 table copy moved"
+    .assert tbl_q4_e5 = tbl_q4, error, "expert 5 table copy moved"
+    .assert tbl_clamp_e5 = tbl_clamp, error, "expert 5 table copy moved"
+    .assert tbl_entoff_e5 = tbl_entoff, error, "expert 5 table copy moved"
+    .assert tbl_blkcnt_e5 = tbl_blkcnt, error, "expert 5 table copy moved"
+    .assert tbl_step_e5 = tbl_step, error, "expert 5 table copy moved"
+    .assert tbl_exp_e5 = tbl_exp, error, "expert 5 table copy moved"
+.segment "HEADERS6"
+    .incbin "out/model/headers_e6.bin"
+.segment "TABLES6"
+    .align $100
+tbl_mul_e6: .incbin "out/model/tbl_mul.bin"
+    .align $100
+tbl_q2_e6: .incbin "out/model/tbl_q2.bin"
+    .align $100
+tbl_q3_e6: .incbin "out/model/tbl_q3.bin"
+    .align $100
+tbl_q4_e6: .incbin "out/model/tbl_q4.bin"
+    .align $100
+tbl_clamp_e6: .incbin "out/model/tbl_clamp.bin"
+    .align $100
+tbl_entoff_e6: .incbin "out/model/tbl_entoff.bin"
+    .align $100
+tbl_blkcnt_e6: .incbin "out/model/tbl_blkcnt.bin"
+    .align $100
+tbl_step_e6: .incbin "out/model/tbl_step.bin"
+tbl_exp_e6: .incbin "out/model/tbl_exp.bin"
+    .assert tbl_mul_e6 = tbl_mul, error, "expert 6 table copy moved"
+    .assert tbl_q2_e6 = tbl_q2, error, "expert 6 table copy moved"
+    .assert tbl_q3_e6 = tbl_q3, error, "expert 6 table copy moved"
+    .assert tbl_q4_e6 = tbl_q4, error, "expert 6 table copy moved"
+    .assert tbl_clamp_e6 = tbl_clamp, error, "expert 6 table copy moved"
+    .assert tbl_entoff_e6 = tbl_entoff, error, "expert 6 table copy moved"
+    .assert tbl_blkcnt_e6 = tbl_blkcnt, error, "expert 6 table copy moved"
+    .assert tbl_step_e6 = tbl_step, error, "expert 6 table copy moved"
+    .assert tbl_exp_e6 = tbl_exp, error, "expert 6 table copy moved"
+.segment "HEADERS7"
+    .incbin "out/model/headers_e7.bin"
+.segment "TABLES7"
+    .align $100
+tbl_mul_e7: .incbin "out/model/tbl_mul.bin"
+    .align $100
+tbl_q2_e7: .incbin "out/model/tbl_q2.bin"
+    .align $100
+tbl_q3_e7: .incbin "out/model/tbl_q3.bin"
+    .align $100
+tbl_q4_e7: .incbin "out/model/tbl_q4.bin"
+    .align $100
+tbl_clamp_e7: .incbin "out/model/tbl_clamp.bin"
+    .align $100
+tbl_entoff_e7: .incbin "out/model/tbl_entoff.bin"
+    .align $100
+tbl_blkcnt_e7: .incbin "out/model/tbl_blkcnt.bin"
+    .align $100
+tbl_step_e7: .incbin "out/model/tbl_step.bin"
+tbl_exp_e7: .incbin "out/model/tbl_exp.bin"
+    .assert tbl_mul_e7 = tbl_mul, error, "expert 7 table copy moved"
+    .assert tbl_q2_e7 = tbl_q2, error, "expert 7 table copy moved"
+    .assert tbl_q3_e7 = tbl_q3, error, "expert 7 table copy moved"
+    .assert tbl_q4_e7 = tbl_q4, error, "expert 7 table copy moved"
+    .assert tbl_clamp_e7 = tbl_clamp, error, "expert 7 table copy moved"
+    .assert tbl_entoff_e7 = tbl_entoff, error, "expert 7 table copy moved"
+    .assert tbl_blkcnt_e7 = tbl_blkcnt, error, "expert 7 table copy moved"
+    .assert tbl_step_e7 = tbl_step, error, "expert 7 table copy moved"
+    .assert tbl_exp_e7 = tbl_exp, error, "expert 7 table copy moved"
