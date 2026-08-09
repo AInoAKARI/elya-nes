@@ -43,4 +43,10 @@ if [ "$NES_T" -le 21 ]; then
     build ramexec rom/nn.s    rom/nn.cfg $NCTXDEF -DRAMEXEC    # MMC5 PRG-RAM probe
 fi
 
+# The bank-budget probe is a 1 MB image and is built last so that a failure
+# here cannot be mistaken for a failure of the cartridge itself.
+python3 tools/gen_bankstamp.py 127 out/model/bankstamp.bin > /dev/null
+ca65 -I rom -I out/model -o out/bankprobe.o rom/bankprobe.s
+ld65 -C rom/bankprobe.cfg -o out/bankprobe.nes out/bankprobe.o
+
 ls -l out/*.nes

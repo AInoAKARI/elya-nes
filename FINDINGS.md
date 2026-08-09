@@ -2498,3 +2498,56 @@ the shipping build's 1,116,979, i.e. -487 cycles with no arithmetic change.
 That is the same code-motion-across-page-boundaries effect FINDINGS already
 records for a five-byte edit; the 71-cycle body is a direct interval
 measurement and does not depend on it.
+
+## 2. The real bank budget: 127 of 128 banks, measured end to end
+
+The MMC5's PRG bank register is seven bits plus a ROM/RAM select, so the
+documentation says 128 banks of 8 KB = 1 MB. The shipping cartridge uses
+twelve of them, so nothing in this repository had ever exercised that claim.
+
+`rom/bankprobe.s` + `rom/bankprobe.cfg` build a **1,056,784-byte** image with
+every one of the 127 switchable banks stamped at both ends
+(`$8000 = bank ^ $5A`, `$9FFF = bank ^ $A5` - `tools/gen_bankstamp.py`),
+map each bank in turn through `$5114`, and check both stamps. Checking both
+ends is what separates "bank not mapped" from "bank mapped but truncated"; the
+XORs stop a stamp from ever equalling the bank number or the `$00`/`$FF` an
+unmapped window returns.
+
+```
+status OK
+markers [..., 200, 255]          200 = every stamped bank returned both stamps
+banks with BOTH stamps correct: 127 / 127
+failures: []
+```
+
+**127/127.** The chain that had to hold - MMC5 register, iNES PRG-size field
+(64 x 16 KB units), and MAME's mapper 5 - holds all the way to 1 MB. 1 MB is
+also the ceiling: an eighth bit does not exist in `$5114`.
+
+### What that leaves
+
+| | banks | bytes |
+| --- | ---: | ---: |
+| MMC5 addressable | 128 | 1,048,576 |
+| shipping cartridge today | 12 | 98,304 |
+| **free** | **116** | **950,272** |
+
+And two of the twelve in use are already empty at `T = 20` - the positional
+bank the embedding still absorbs, and the parity spare - so the honest figure
+is **118 banks that hold nothing**.
+
+Per-bank occupancy of the twelve, from the link map:
+
+| bank | contents | used | slack |
+| --- | --- | ---: | ---: |
+| 0-6 | weight stream (52,207 nnz + per-bank pad) | 7 x 8,192 | ~5,000 total |
+| 7 | embed 4,096 + pos 1,280 + softmax tables 841 + RAM kernels 639 | 6,856 | 1,336 |
+| 8 | positional table - **empty at T = 20** | 0 | 8,192 |
+| 9 | row headers 5,656 + lookup tables 2,063 | 8,143 | **241** |
+| 10 | spare, iNES 16 KB parity - **empty** | 0 | 8,192 |
+| 11 | code, chains, vectors | 6,536 | 1,656 |
+
+The header bank's 241 bytes of slack is the tightest thing in the image and it
+matters for what follows: an expert needs its own header table, and a header
+table plus a duplicate of the lookup tables is 8,143 bytes, which fits an 8 KB
+bank with 241 bytes to spare and nothing else.
