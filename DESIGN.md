@@ -384,9 +384,10 @@ See FINDINGS. (This paragraph said "is now 1" until 2026-08-08; the shipped
 value has been 2 since the ladder was run.) The context length `T` is stamped
 into the npz the same way and for the same reason.
 
-**What the quantised softmax can express, and why it bounds long context.**
-The normalisation picks the smallest `kk` with `S >> kk <= 8` and then clamps
-each entry to `0..7`, so
+**What the quantised softmax can express.** The shipped normalisation now
+picks `p_t = min(e_t * SM_TARGET / S, PMAX)` exactly; the power-of-two form
+below is what shipped until 2026-08-09 and is still selectable with
+`NES_SM_NORM=pow2`. Either way the budget is the same:
 
 ```
 sum_t p_t <= 8    with every p_t an integer in 0..7
@@ -397,6 +398,16 @@ that ceiling does not move when `T` does. Extending the window extends what
 the model may look at, not how much it may look at. This is a property of the
 kernel, stated here so that a context result can be read against it rather
 than around it.
+
+**That property is real and it was NOT what was limiting the model.** Raising
+the budget to 16 and to 32 was measured, at two seeds each, and is worth
+nothing (1.5279 / 1.5335 / 1.5267 nats/char - not even monotone). What the
+old normaliser *was* costing is the difference between the budget and the
+**realised** sum: `kk` is the smallest shift with `S >> kk <= 8`, so the
+realised sum lands anywhere in `(4, 8]`, and measured it landed on 4 in a
+quarter of all softmax evaluations. Removing that waste - same nibble, same
+budget - is worth 0.0239 nats/char at 60,000 steps and two seeds. See
+FINDINGS.
 
 The bar is a **bit-exact match of every generated token id over 16+ tokens**,
 not a 3-token spot check - a 3-token check passed two genuinely broken changes
@@ -453,6 +464,16 @@ one patched byte and `av_patch` grows a second store per live unit. The
 packer refuses it. The trainer and the host reference still implement it, so
 the question "would 32 have bought anything?" can be answered without paying
 for it.
+
+### The knob that actually mattered was not in this family
+
+Everything above is about how many bits a probability gets. Measured, that
+buys nothing. The normaliser - how much of the budget the kernel actually
+hands out - is worth 0.0239 nats/char for +0.37% cycles, and its design is
+in FINDINGS rather than here because it was found by the screen, not
+predicted by it. The honest record is that this section correctly predicted
+the *cost* of the family and correctly identified that it was nearly free,
+and was aimed at the wrong knob.
 
 ### What it costs, predicted
 
