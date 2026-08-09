@@ -48,7 +48,7 @@ SM_TEMP = 16.0         # exp table is ~64*exp(d/2) with d = floor(ds/8)
 # is what keeps AV_SHIFT and the attention output range fixed across the
 # family.  Keep this identical to host/ref.py - train/test_equiv.py proves it.
 SM_TARGET = int(os.environ.get("NES_SM_TARGET", "8"))
-SM_NORM = os.environ.get("NES_SM_NORM", "pow2")   # see host/ref.py
+SM_NORM = os.environ.get("NES_SM_NORM", "exact")  # see host/ref.py
 PMAX = SM_TARGET - 1
 PMUL_SHIFT = 2 + (SM_TARGET // 8).bit_length() - 1
 SM_SUM = float(SM_TARGET)

@@ -65,13 +65,20 @@ assert SM_TARGET in (8, 16, 32), "SM_TARGET must be 8, 16 or 32"
 #           fit.  This is what shipped.  It is a SHARED EXPONENT, and it
 #           wastes up to a factor of two: the realised sum lands anywhere in
 #           (SM_TARGET/2, SM_TARGET].
+#           SHIPPED UNTIL 2026-08-09, now selectable but no longer the default.
 #   exact : p = min(e * SM_TARGET // S, PMAX).  No waste.  On the 6502 this is
 #           still ONE table lookup per position - the row is chosen once per
 #           softmax from (kk, S>>kk) instead of from kk alone - but the table
 #           grows by the number of distinct mantissas.  Implemented here and
 #           in the trainer so the question "is the power-of-two waste worth
 #           paying ROM for?" is answered before any ROM is spent on it.
-SM_NORM = os.environ.get("NES_SM_NORM", "pow2")
+#           MEASURED at 60,000 steps x 2 seeds: 1.3902 nats/char against the
+#           power-of-two normaliser's 1.4141, non-overlapping, for +0.37%
+#           cycles.  It is the default because it is the measured optimum,
+#           the same reason AV_SHIFT is 2.  The old normaliser stays
+#           buildable with NES_SM_NORM=pow2 so it remains a verifiable
+#           regression target.
+SM_NORM = os.environ.get("NES_SM_NORM", "exact")
 assert SM_NORM in ("pow2", "exact")
 PMAX = SM_TARGET - 1
 PMUL_SHIFT = 2 + (SM_TARGET // 8).bit_length() - 1   # 8->2, 16->3, 32->4

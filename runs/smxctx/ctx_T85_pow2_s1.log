@@ -1,1 +1,5 @@
 ctx_T85_pow2_s1              step     1  fit 7.4726  val 7.4562  density 0.5493  13s
+ctx_T85_pow2_s1              step   500  fit 3.0624  val 3.0586  density 0.5483  189s
+ctx_T85_pow2_s1              step  1000  fit 2.9537  val 2.9567  density 0.5472  366s
+ctx_T85_pow2_s1              step  1500  fit 2.8752  val 2.8678  density 0.5456  541s
+ctx_T85_pow2_s1              step  2000  fit 2.7821  val 2.7916  density 0.5454  715s
