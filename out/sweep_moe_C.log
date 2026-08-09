@@ -135,3 +135,16 @@ moe_dense60k_s2              step  5500  fit 2.4174  val 2.4222  density 0.5396 
 moe_dense60k_s2              step  6000  fit 2.3993  val 2.3969  density 0.5391  841s
 moe_dense60k_s2              step  6500  fit 2.3825  val 2.3972  density 0.5379  883s
 moe_dense60k_s2              step  7000  fit 2.3757  val 2.3920  density 0.5373  924s
+moe_dense60k_s2              step  7500  fit 2.3734  val 2.3875  density 0.5367  967s
+moe_dense60k_s2              step  8000  fit 2.3481  val 2.3428  density 0.5353  1011s
+moe_dense60k_s2              step  8500  fit 2.3690  val 2.3718  density 0.5347  1055s
+moe_dense60k_s2              step  9000  fit 2.3363  val 2.3308  density 0.5324  1094s
+moe_dense60k_s2              step  9500  fit 2.3733  val 2.3734  density 0.5335  1138s
+moe_dense60k_s2              step 10000  fit 2.3286  val 2.3366  density 0.5307  1181s
+moe_dense60k_s2              step 10500  fit 2.3802  val 2.3655  density 0.5284  1225s
+moe_dense60k_s2              step 11000  fit 2.3277  val 2.3260  density 0.5295  1268s
+moe_dense60k_s2              step 11500  fit 2.3179  val 2.3157  density 0.5280  1312s
+moe_dense60k_s2              step 12000  fit 2.2992  val 2.3128  density 0.5297  1355s
+moe_dense60k_s2              step 12500  fit 2.3052  val 2.3146  density 0.5280  1399s
+moe_dense60k_s2              step 13000  fit 2.3308  val 2.3453  density 0.5268  1443s
+moe_dense60k_s2              step 13500  fit 2.3322  val 2.3144  density 0.5265  1486s

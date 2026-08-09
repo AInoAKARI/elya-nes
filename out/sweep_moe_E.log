@@ -27,3 +27,10 @@ moe_n8bal60k_s2              step 12000  fit 2.0501  val 2.0647  density 0.5380 
 moe_n8bal60k_s2              step 12500  fit 2.0572  val 2.0749  density 0.5374  2851s
 moe_n8bal60k_s2              step 13000  fit 2.0427  val 2.0535  density 0.5365  2989s
 moe_n8bal60k_s2              step 13500  fit 2.0640  val 2.0483  density 0.5359  3107s
+moe_n8bal60k_s2              step 14000  fit 2.0395  val 2.0333  density 0.5359  3192s
+moe_n8bal60k_s2              step 14500  fit 2.0416  val 2.0448  density 0.5349  3282s
+moe_n8bal60k_s2              step 15000  fit 2.0314  val 2.0275  density 0.5349  3366s
+moe_n8bal60k_s2              step 15500  fit 2.0535  val 2.0405  density 0.5339  3455s
+moe_n8bal60k_s2              step 16000  fit 2.0374  val 2.0229  density 0.5339  3543s
+moe_n8bal60k_s2              step 16500  fit 2.0477  val 2.0452  density 0.5333  3632s
+moe_n8bal60k_s2              step 17000  fit 2.0286  val 2.0323  density 0.5326  3720s

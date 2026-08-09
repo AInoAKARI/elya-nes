@@ -2878,3 +2878,11 @@ distinct experts per seed: min 6  max 8  mean 7.27
 
 Every expert is exercised between 103 and 223 times, and a single 19-token run
 touches six to eight of the eight. The gate is a real gate.
+
+The battery-backed result block still reads back on a mixture cartridge:
+`"ELYA"`, count 19, and every token id identical to the host reference at
+`$7FE8`. That block lives in the `$6000` PRG-RAM window on `$5113`, which the
+mixture never touches - it moves `$5114` and `$5116` only - so this was
+expected, and it was checked anyway because the last time a bank selection was
+assumed rather than named, the block ended up scattered across whichever bank
+happened to be mapped.
