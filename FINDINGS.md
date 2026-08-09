@@ -2939,3 +2939,30 @@ published pair, which is about the seed noise, and its own two seeds differ by
 0.0076. There is no claim here that anything improved - the point is that the
 mixture has to be compared against **1.4020**, the strongest dense number this
 tree produces, and not only against the 1.4133 in the README.
+
+## 10. The routing table's construction does not matter. At all.
+
+Three routers at N = 4, 12,000 steps, seed 1, identical in every other
+respect and identical in cartridge cost (11 cycles):
+
+| route | what it is | load max/min | **val nats/char** |
+| --- | --- | ---: | ---: |
+| `clus` | balanced k-means on `P(next \| tok)` | 1.08 | **1.4353** |
+| `rand` | a seeded random assignment | **3.09** | **1.4374** |
+| `bal` | greedy frequency balance | 1.00 | **1.4385** |
+
+**The spread is 0.0032 nats/char across all three, against a measured seed
+noise of 0.009.** Deliberately clustering tokens by what they predict is worth
+nothing over load balancing, and a *random* assignment that sends 27% of the
+corpus to one expert and 11% to another is worth nothing either - if anything
+it edges the balanced one, which at this spread means nothing.
+
+That is the strongest single argument for the design in section 3. The whole
+routing question - hash it, balance it, cluster it, learn it - turns out to
+sit inside the noise, so paying 2,130 cycles for a learned projection would be
+buying a decision that does not exist. **What the mixture buys is capacity and
+conditional computation, not clever assignment.**
+
+Stated as a negative, plainly: **the clustering router, which was the only
+construction here that tried to make experts specialise semantically, failed
+to beat a coin.**
