@@ -83,7 +83,7 @@ ROM that runs perfectly and says the wrong thing.
 | CPU clock | **derived**, not assumed: 1,789,772 Hz (MAME truncates 21477272/12) |
 | datasheet calibration | **28/28, 0 mismatches**, bit-identical over 3 runs |
 | primitives vs prior run | **19/19 match** |
-| bank crossings per token | **6** (36 cycles, 0.003% of a token) |
+| bank crossings per token | **6** - and a switch costs **73 cycles measured in the loop**, not the 6-cycle datasheet store.  511 cycles/token, 0.046% |
 | ternary kernel | **10.688 cycles/MAC** asymptotic vs the 8-cycle primitive |
 | ROM vs host reference, T = 20 | **19/19 tokens EXACT** at every one of 64 seed tokens: **1,216/1,216** |
 | ROM vs host reference, T = 85 | **84/84 tokens EXACT**, at three independent seed tokens: **252/252** |
@@ -107,6 +107,7 @@ rom/     common.inc  marker protocol + deterministic machine init
          mmc1.s      MMC1 bank switch cost, on a real MMC1 cart
          mmc3.s      MMC3 bank switch cost, on a real MMC3 cart
          nn.s        the transformer: 32 gather chains + forward pass
+         bankprobe.s how many of the MMC5's 128 PRG banks really answer
          *.cfg       one ld65 config per mapper
 host/    ref.py      the exact-integer SPECIFICATION and the weight packer
          blocksize.py  block-size saturation measurement
@@ -123,11 +124,18 @@ train/   prep_corpus.py   the 64-symbol charset, the BPE, the story-disjoint spl
          table.py         the results table, normalised per character
          perpos.py        held-out loss POSITION BY POSITION
          attnspan.py      how far back the attention actually reaches
+         route.py         the four routing tables, all 11 cycles on the 6502
+         replicate_experts.py  N IDENTICAL experts: the mixture's control arm
+         expert_coverage.py    proves the survey routes to every expert
+         moe_gate.sh      pack, prove, run, cover, survey, profile
+         moe_table.py     the mixture comparison table, per character
 tools/   nes_bench.py      the instrument (write tap, no polling, GC-safe)
          run_calib.py      datasheet calibration report
          run_prim.py       primitive report
          run_nn.py         ROM vs host, token by token, plus cycles/token
          run_profile.py    per-stage cycle profile
+         run_bank_profile.py  bank-switch and router cost, bracketed in situ
+         gen_bankstamp.py  stamps every PRG bank for the bank-budget probe
          check_branches.py branch placement verified from RAW ROM BYTES
 DESIGN.md   ROM layout, weight stream format, cost model - written FIRST
 FINDINGS.md the journal, appended after every discrete result
@@ -143,6 +151,8 @@ FINDINGS.md the journal, appended after every discrete result
 | `-DATTNPROF` | `nnattn.nes` | nested markers splitting attention into QK / softmax / AV (`NCTX <= 21`) |
 | `-DATTNBENCH` | `nnabench.nes` | isolated slope of the attention kernels, self-modified vs pointer (`NCTX <= 21`) |
 | `-DRAMEXEC` | `ramexec.nes` | probes whether MMC5 PRG-RAM at `$8000` is writable and executable (`NCTX <= 21`) |
+| `-DBANKPROF` | `nnbank.nes` | brackets the weight-stream bank switch and the router in situ - this is where 73 and 11 cycles come from |
+| `-DMOE` + `out/model/nnmoe.cfg` | `nn.nes` | mixture-of-experts build.  Both the define and the linker config are decided by `train/build_trained.sh` from whether the packer emitted `out/model/moe.inc`, which it does whenever the npz carries `_moe` |
 | `-DDEBUG -DDBGPOS=n` | `nndbg.nes` | dumps intermediate state at position n (`NCTX <= 21` only) |
 | `-DSEEDTOK=n` | | the seed token the ROM free-runs from (default 1) |
 | `-DNCTX=n` | | context length; **must match `NES_T`** for `host/ref.py`. **21** is the ceiling for the attention kernels (`64 / L`, the key cache row); above it the ROM builds on the legacy attention path, up to **85** (`32768 / (L*2*D)`) |
