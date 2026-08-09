@@ -3,3 +3,4 @@ ctx_T20_pow2_s1              step   500  fit 3.1184  val 3.1203  density 0.5487 
 ctx_T20_pow2_s1              step  1000  fit 2.9077  val 2.9075  density 0.5472  98s
 ctx_T20_pow2_s1              step  1500  fit 2.7262  val 2.7247  density 0.5468  145s
 ctx_T20_pow2_s1              step  2000  fit 2.6162  val 2.6299  density 0.5446  189s
+ctx_T20_pow2_s1              step  2500  fit 2.5472  val 2.5537  density 0.5450  231s

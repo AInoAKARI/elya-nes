@@ -2971,3 +2971,39 @@ of 224, which is expected: the exact normaliser makes the probability
 distribution slightly flatter, so the attention output is slightly larger, so
 the activations feeding the next gather are slightly larger. It is still 8%
 below the bound and the bound is a proof, not a measurement.
+
+### The attention reaches further, even at `T = 20`
+
+`train/attnspan.py`, 4 seed tokens x 19 steps, the two 60,000-step models:
+
+| layer | shipped: nonzero / mean dist / p95 / max | exact: nonzero / mean dist / p95 / max |
+| ---: | --- | --- |
+| 0 | 1.38 / 1.00 / 2 / 7 | **1.66 / 1.04 / 2 / 6** |
+| 1 | 1.22 / 0.96 / 3 / 9 | **1.31 / 1.13 / 3 / 10** |
+| 2 | 1.14 / 0.91 / 4 / 11 | **1.69 / 1.38 / 6 / 13** |
+
+Layer 2's mean attention distance is up 52% and its p95 from 4 to 6, inside
+the same 20-position window. The model is not just carrying more probability
+mass; it is putting it further back. That is the ingredient the `T = 85`
+experiment needed and did not have, and it is why the context question is
+worth asking again rather than assumed answered.
+
+### Text, for what it is worth
+
+Greedy, host-only prompting, both 60,000-step models:
+
+```
+prompt 'once upon a time'   shipped -> 'once upon a time, there was a l'
+                            exact   -> 'once upon a time, there was a l'
+prompt 'the little girl'    shipped -> 'the little girl friends. on'
+                            exact   -> 'the little girl named lily'
+seed 'b'                    shipped -> 'big friends. she was so hap'
+                            exact   -> 'big back in the big back '
+```
+
+`'the little girl named lily'` is a better continuation than
+`'the little girl friends. on'` and `'big back in the big back '` is a worse
+one than `'big friends. she was so hap'`. **Three strings prove nothing** -
+the loss numbers are the evidence and they are two seeds each at 60,000 steps.
+This is recorded because the previous experiment quoted its text, and quoting
+only the flattering half would be worse than quoting none.
