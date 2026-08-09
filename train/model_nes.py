@@ -39,9 +39,22 @@ W2_SHIFT = int(os.environ.get("NES_W2_SHIFT", "3"))
 AV_SHIFT = int(os.environ.get("NES_AV_SHIFT", "2"))
 SM_SHIFT = int(os.environ.get("NES_SM_SHIFT", "3"))
 ACT_MAX = 7
-MUL_SHIFT = 2          # the mul table is floor(q*k / 4)
+MUL_SHIFT = 2          # the QK mul table is floor(q*k / 4)
 SM_TEMP = 16.0         # exp table is ~64*exp(d/2) with d = floor(ds/8)
-SM_SUM = 8.0           # power-of-two normalisation targets a sum of <= 8
+
+# The softmax probability budget.  See host/ref.py for the derivation; the
+# short version is that PMUL_SHIFT rises with SM_TARGET so that the attention
+# accumulator bound (SM_TARGET * 7 / 2^PMUL_SHIFT = 14) does not move, which
+# is what keeps AV_SHIFT and the attention output range fixed across the
+# family.  Keep this identical to host/ref.py - train/test_equiv.py proves it.
+SM_TARGET = int(os.environ.get("NES_SM_TARGET", "8"))
+PMAX = SM_TARGET - 1
+PMUL_SHIFT = 2 + (SM_TARGET // 8).bit_length() - 1
+SM_SUM = float(SM_TARGET)
+
+# exp table: EXP_SPAN raw score units of dynamic range, in 2^SM_SHIFT buckets
+EXP_SPAN = 112
+EXP_N = EXP_SPAN // (1 << SM_SHIFT) + 1
 
 
 def ste(soft, hard):
@@ -98,14 +111,14 @@ def _hard_qk(q, k):
 
 
 def _hard_av(p, v):
-    """sum_t floor(p[.,i,t] * v[.,t,d] / 4), exact, outside autograd."""
+    """sum_t floor(p[.,i,t] * v[.,t,d] / 2^PMUL_SHIFT), exact, outside autograd."""
     B, H, T, _ = p.shape
     out = v.new_empty(B, H, T, v.shape[-1])
     with torch.no_grad():
         vv = v.unsqueeze(2)
         for i in range(0, T, _CHUNK):
             pr = p[:, :, i:i + _CHUNK].unsqueeze(-1) * vv
-            out[:, :, i:i + _CHUNK] = torch.floor(pr / (1 << MUL_SHIFT)).sum(3)
+            out[:, :, i:i + _CHUNK] = torch.floor(pr / (1 << PMUL_SHIFT)).sum(3)
     return out
 
 
@@ -114,7 +127,7 @@ def qk_scores(q, k):
 
 
 def av_sum(p, v):
-    return ste((p @ v) / (1 << MUL_SHIFT), _hard_av(p, v))
+    return ste((p @ v) / (1 << PMUL_SHIFT), _hard_av(p, v))
 
 
 def softmax_q(scores, mask, exptab):
@@ -126,11 +139,12 @@ def softmax_q(scores, mask, exptab):
     neg = torch.full_like(scores, -1e6)
     s = torch.where(mask, scores, neg)
     m = s.amax(-1, keepdim=True)
-    d = torch.clamp(torch.floor((s - m) / (1 << SM_SHIFT)), min=-14.0)
-    idx = (d + 14).long().clamp(0, 14)
+    lim = float(EXP_N - 1)
+    d = torch.clamp(torch.floor((s - m) / (1 << SM_SHIFT)), min=-lim)
+    idx = (d + lim).long().clamp(0, EXP_N - 1)
     e = exptab[idx]                                   # exact table lookup
     S = e.sum(-1, keepdim=True)
-    # kk = smallest k with (S >> k) <= 8.  floor(S / 2^k) <= 8  <=>  2^k >= ...
+    # kk = smallest k with (S >> k) <= SM_TARGET
     kk = torch.zeros_like(S)
     cur = S.clone()
     for _ in range(16):                               # S <= T*64 = 5440 < 2^13
@@ -138,10 +152,10 @@ def softmax_q(scores, mask, exptab):
         kk = kk + step
         if step.sum() == 0:
             break
-    hard = torch.clamp(torch.floor(e / 2 ** kk), max=float(ACT_MAX))
+    hard = torch.clamp(torch.floor(e / 2 ** kk), max=float(PMAX))
     hard = torch.where(mask, hard, torch.zeros_like(hard))
     soft = torch.softmax(torch.where(mask, scores, neg) / SM_TEMP, dim=-1) * SM_SUM
-    soft = torch.clamp(soft, max=float(ACT_MAX))
+    soft = torch.clamp(soft, max=float(PMAX))
     return ste(soft, hard)
 
 
@@ -202,8 +216,9 @@ class NesModel(nn.Module):
         self.logit_scale = nn.Parameter(torch.tensor(float(logit_scale)))
 
         import numpy as np
-        exptab = [max(0, min(64, int(round(64.0 * math.exp((i - 14) / 2.0)))))
-                  for i in range(15)]
+        exptab = [max(0, min(64, int(round(64.0 * math.exp(
+                      (i - (EXP_N - 1)) * (1 << SM_SHIFT) / SM_TEMP)))))
+                  for i in range(EXP_N)]
         self.register_buffer("exptab", torch.tensor(exptab, dtype=torch.float32))
         m = torch.tril(torch.ones(T, T, dtype=torch.bool))
         self.register_buffer("causal", m)
@@ -257,7 +272,7 @@ class NesModel(nn.Module):
             else:
                 sc = (qh @ kh.transpose(-1, -2)) / (1 << MUL_SHIFT)
                 pr = torch.softmax(sc.masked_fill(~mask, -1e9) / SM_TEMP, -1) * SM_SUM
-                av = (pr @ vh) / (1 << MUL_SHIFT)
+                av = (pr @ vh) / (1 << PMUL_SHIFT)
                 att = av / (1 << AV_SHIFT)
             att = att.transpose(1, 2).reshape(B, Tn, D)
 

@@ -125,6 +125,10 @@ def main():
         # at another gives a positional table of the wrong height, and the only
         # thing that would have caught it was a bare assert.
         z["_ctx"] = np.array([M.T], dtype=np.int16)
+        # And the probability budget.  A model trained with a sum <= 16
+        # softmax and run against a sum <= 8 kernel loses half its attention
+        # mass silently; this is the same class of trap as the shifts.
+        z["_smtarget"] = np.array([M.SM_TARGET], dtype=np.int16)
         np.savez(os.path.join(a.out, name + tag + ".npz"), **z)
         meta = dict(name=name + tag, vocab=a.vocab, tau=a.tau, mode=a.mode,
                     quant=a.quant, ctx=M.T, k_shift=M.K_SHIFT,

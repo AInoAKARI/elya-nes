@@ -39,6 +39,34 @@ W2_SHIFT = int(os.environ.get("NES_W2_SHIFT", "3"))  # W2 (128 inputs)
 AV_SHIFT = int(os.environ.get("NES_AV_SHIFT", "2"))  # attention value sum
 SM_SHIFT = int(os.environ.get("NES_SM_SHIFT", "3"))  # score difference -> exp
 
+# ---------------------------------------------------------------------------
+# The softmax's probability budget.
+#
+# The quantised softmax normalises so that sum_t p_t <= SM_TARGET with every
+# p_t an integer in 0..SM_TARGET-1, so AT MOST SM_TARGET of the T positions
+# can carry any weight.  SM_TARGET = 8 is what shipped and is what the context
+# experiment measured as the binding representational limit.
+#
+# Widening it is nearly free on the 6502 because the AV multiply shift absorbs
+# it exactly.  The attention accumulator is bounded by
+#
+#     |sum_t floor(p_t * v_t / 2^PMUL_SHIFT)|  <=  SM_TARGET * 7 / 2^PMUL_SHIFT
+#
+# so holding PMUL_SHIFT = 2 + log2(SM_TARGET/8) keeps that bound at 14 for
+# every target, which means AV_SHIFT does not move and neither does the range
+# of the attention output.  The product table's entries stay in the same
+# 28-wide band too, so the AV chain's carry-free block barely changes (10 -> 9)
+# and its inner loop does not change at all.  See DESIGN.md and FINDINGS.
+SM_TARGET = int(os.environ.get("NES_SM_TARGET", "8"))
+assert SM_TARGET in (8, 16, 32), "SM_TARGET must be 8, 16 or 32"
+PMAX = SM_TARGET - 1
+PMUL_SHIFT = 2 + (SM_TARGET // 8).bit_length() - 1   # 8->2, 16->3, 32->4
+# A probability nibble is stored pre-shifted as p<<4 (the low byte of its row
+# in a page-aligned product table), so SM_TARGET > 16 needs a second patched
+# byte in av_patch.  Recorded here because it is the only place the family
+# stops being free.
+PROW_FITS_ONE_BYTE = SM_TARGET <= 16
+
 # AV_SHIFT was 4 in the first cut of this port.  It is now 2, and the reason
 # it is 2 rather than the 1 the range argument demands is a measured negative -
 # see FINDINGS, "Fixing the attention shift made it WORSE".
@@ -141,14 +169,71 @@ def build_qtbl(k):
     return t
 
 
+# The exp table's dynamic range in RAW score units.  The shipped table is 15
+# entries at SM_SHIFT = 3, i.e. 14 buckets of 8 raw units = 112.  Holding the
+# span fixed and lowering SM_SHIFT refines the buckets without changing what
+# the table can express - and costs NOTHING on the 6502, because the score
+# difference is turned into an exp value by a 256-byte lookup (tbl_sm) whose
+# size does not depend on how many buckets it maps onto.
+EXP_SPAN = 112
+EXP_TEMP = 16.0          # effective temperature on the raw score: the shipped
+                         # table is 64*exp(d/2) on d = floor(ds/8) = exp(ds/16)
+
+
 def build_exptab():
-    """15 entries for score-difference bucket -14..0, ~64*exp(d/2)."""
+    """EXP_N entries for score-difference bucket -(EXP_N-1)..0.
+
+    entry(i) = 64 * exp((i - (EXP_N-1)) * 2^SM_SHIFT / EXP_TEMP)
+
+    At SM_SHIFT = 3 this is exactly the shipped 15-entry ~64*exp(d/2) table.
+    """
     import math
-    return [max(0, min(64, int(round(64.0 * math.exp((i - 14) / 2.0)))))
-            for i in range(15)]
+    n = EXP_SPAN // (1 << SM_SHIFT) + 1
+    return [max(0, min(64, int(round(64.0 * math.exp(
+        (i - (n - 1)) * (1 << SM_SHIFT) / EXP_TEMP)))))
+            for i in range(n)]
 
 
 EXPTAB = build_exptab()
+EXP_N = len(EXPTAB)
+
+
+def build_pmul_table():
+    """pv[(p<<4)|v] = ((p*v) >> PMUL_SHIFT) + PBIAS, p unsigned 0..PMAX,
+    v the signed 4-bit activation nibble.
+
+    This is a SEPARATE table from tbl_mul, which QK uses with a signed q in
+    its high nibble; here the high nibble is an unsigned probability, so rows
+    8..15 mean p = 8..15 rather than q = -8..-1.  At SM_TARGET = 8 the two
+    tables are identical on the rows AV actually reads, which is what makes
+    the baseline bit-exact after this refactor.
+
+    PBIAS is the table's own minimum negated, so entries are >= 0 and eight
+    of them can be summed in one 8-bit register - the same argument as
+    tbl_mul's.  It is computed, not asserted.
+    """
+    size = max(256, SM_TARGET * 16)
+    raw = {}
+    lo = hi = 0
+    for p in range(SM_TARGET):
+        for b in range(16):
+            bv = b - 16 if b >= 8 else b
+            raw[(p << 4) | b] = (p * bv) >> PMUL_SHIFT
+            if bv == -8:
+                continue        # unreachable: activations are clamped to -7..7,
+                                # exactly as build_mul_table notes
+            lo = min(lo, raw[(p << 4) | b])
+            hi = max(hi, raw[(p << 4) | b])
+    bias = -lo
+    t = [0] * size
+    for k, v in raw.items():
+        t[k] = max(0, min(255, v + bias))
+    return t, bias, hi + bias
+
+
+PMUL, PBIAS, PMUL_MAX = build_pmul_table()
+# how many chain units can be summed in 8 bits without setting carry
+PBLOCK = 255 // PMUL_MAX
 
 # tbl_p geometry: one row per shift count, SM_PROW entries covering every
 # value the exp table can produce.
@@ -157,20 +242,20 @@ SM_KROWS = 9            # sum(e) <= T*max(EXPTAB), so kk can never exceed 8
 
 
 def softmax_q(scores):
-    """Quantised softmax: max-shift, 15-entry exp table, power-of-two
-    normalisation, clamp to 0..7.  Exactly what the ROM does."""
+    """Quantised softmax: max-shift, exp table, power-of-two normalisation,
+    clamp to 0..PMAX.  Exactly what the ROM does."""
     m = max(scores)
     e = []
     for s in scores:
         d = (s - m) >> SM_SHIFT          # <= 0, arithmetic shift
-        if d < -14:
-            d = -14
-        e.append(EXPTAB[d + 14])
+        if d < -(EXP_N - 1):
+            d = -(EXP_N - 1)
+        e.append(EXPTAB[d + EXP_N - 1])
     S = sum(e)
     kk = 0
-    while (S >> kk) > 8:
+    while (S >> kk) > SM_TARGET:
         kk += 1
-    return [min(x >> kk, 7) for x in e]
+    return [min(x >> kk, PMAX) for x in e]
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +318,16 @@ class Model:
                     "retrain.  (Loading it anyway gives a plausible-looking "
                     "model that generates rubbish - it happened.)"
                     % (path, got, want))
+        if "_smtarget" in z:
+            got = int(z["_smtarget"][0])
+            if got != SM_TARGET:
+                raise SystemExit(
+                    "%s was trained with a sum <= %d softmax but this "
+                    "reference is configured for sum <= %d.  Set "
+                    "NES_SM_TARGET=%d, or retrain.  (Running a wide-softmax "
+                    "model through a narrow kernel clamps away the mass it "
+                    "learned to spread and still generates plausible text.)"
+                    % (path, got, SM_TARGET, got))
         m = cls.__new__(cls)
         m.emb = [[int(v) for v in row] for row in z["emb"]]
         m.pos = [[int(v) for v in row] for row in z["pos"]]
@@ -348,8 +443,8 @@ class Runner:
                 for j in range(DH):
                     s = 0
                     for t in range(p + 1):
-                        s += MUL[(nib(pr[t]) << 4) | self.Vc[l][t][base + j]]
-                    s -= MUL_BIAS * (p + 1)
+                        s += PMUL[(pr[t] << 4) | self.Vc[l][t][base + j]]
+                    s -= PBIAS * (p + 1)
                     att[base + j] = quant(s, AV_SHIFT)
 
             if l == 0:
@@ -460,6 +555,18 @@ def pack(model, outdir):
         pos += bytes((v & 0xFF) for v in model.pos[t])
     w("pos.bin", pos)
     w("tbl_mul.bin", MUL)
+    # The AV product table.  Separate from tbl_mul because AV's high nibble is
+    # an unsigned probability and QK's is a signed activation; at SM_TARGET = 8
+    # they agree on every row AV reads.
+    if not PROW_FITS_ONE_BYTE:
+        raise SystemExit(
+            "SM_TARGET = %d needs a %d-byte product table, so the probability "
+            "row address no longer fits the ONE patched byte av_patch writes. "
+            "The 6502 side of this family stops at 16; the trainer and the "
+            "host reference go further so that the question 'would 32 have "
+            "bought anything?' can be answered without building it."
+            % (SM_TARGET, len(PMUL)))
+    w("tbl_pv.bin", PMUL)
     w("tbl_q2.bin", build_qtbl(K_SHIFT))
     w("tbl_q3.bin", build_qtbl(W2_SHIFT))
     w("tbl_q4.bin", build_qtbl(AV_SHIFT))
@@ -472,7 +579,7 @@ def pack(model, outdir):
     sm = []
     for b in range(256):
         d = (b - 256) >> SM_SHIFT
-        sm.append(EXPTAB[max(d, -14) + 14])
+        sm.append(EXPTAB[max(d, -(EXP_N - 1)) + EXP_N - 1])
     w("tbl_sm.bin", sm)
     # min(e >> kk, 7) << 4, one row per kk.  kk is fixed for a whole softmax,
     # so the ROM picks the row once and the per-position shift loop goes away.
@@ -482,7 +589,7 @@ def pack(model, outdir):
     pt = []
     for kk in range(SM_KROWS):
         for e in range(SM_PROW):
-            pt.append(min(e >> kk, 7) << 4)
+            pt.append(min(e >> kk, PMAX) << 4)
     w("tbl_p.bin", pt)
     # entry offset into a 16-entry chain for a list of length n, and the
     # number of blocks that list needs
@@ -502,10 +609,15 @@ def pack(model, outdir):
         f.write("W2SHIFT  = %d\n" % W2_SHIFT)
         f.write("AVSHIFT  = %d\n" % AV_SHIFT)
         f.write("SMSHIFT  = %d\n" % SM_SHIFT)
-        f.write("EXP_TOP  = %d\n" % EXPTAB[14])
+        f.write("EXP_TOP  = %d\n" % EXPTAB[EXP_N - 1])
         f.write("EXP_BOT  = %d\n" % EXPTAB[0])
         f.write("SM_PROW  = %d\n" % SM_PROW)
         f.write("SM_KROWS = %d\n" % SM_KROWS)
+        # the probability budget and everything the AV kernel derives from it
+        f.write("SM_TARGET = %d\n" % SM_TARGET)
+        f.write("PMAX     = %d\n" % PMAX)
+        f.write("PVBIAS   = %d\n" % PBIAS)
+        f.write("PBLOCK   = %d\n" % PBLOCK)
 
     nnz = sum(len(p) + len(n) for p, n in rows)
     return {

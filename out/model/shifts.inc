@@ -7,3 +7,7 @@ EXP_TOP  = 64
 EXP_BOT  = 0
 SM_PROW  = 65
 SM_KROWS = 9
+SM_TARGET = 8
+PMAX     = 7
+PVBIAS   = 13
+PBLOCK   = 10
