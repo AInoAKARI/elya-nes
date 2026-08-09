@@ -14,9 +14,16 @@ NTOK=$((NES_T - 1))
 S=0
 PASS=0
 while [ "$S" -lt "$N" ]; do
+    rm -f out/model/moe.inc out/model/moebanks.inc out/model/nnmoe.cfg
     NES_WEIGHTS="$NPZ" NES_SEED_TOK="$S" python3 host/ref.py out/model "$NTOK" >/dev/null
-    ca65 -I rom -I out/model -DNCTX=$NES_T -DSEEDTOK=$S -o out/sv.o rom/nn.s
-    ld65 -C rom/nn.cfg -o out/sv.nes out/sv.o 2>&1 \
+    # A mixture build carries its own generated linker config and needs -DMOE.
+    if [ -f out/model/moe.inc ]; then
+        CFG=out/model/nnmoe.cfg; MOEDEF=-DMOE
+    else
+        CFG=rom/nn.cfg; MOEDEF=
+    fi
+    ca65 -I rom -I out/model -DNCTX=$NES_T -DSEEDTOK=$S $MOEDEF -o out/sv.o rom/nn.s
+    ld65 -C "$CFG" -o out/sv.nes out/sv.o 2>&1 \
         | grep -v "CHARS" | grep -v "Segment 'POS' does not exist" || true
     R=$(python3 tools/run_nn.py out/sv.nes out/model/expected.json 300 | grep "TOKENS MATCHING")
     echo "seed $S: $R"
