@@ -2823,3 +2823,39 @@ specialise semantically bought nothing over simply keeping them equally
 busy.** It is also the result that makes the cheap router defensible - if the
 elaborate table is no better than the trivial one, the argument that a learned
 projection would have been better than either is running out of room.
+
+## 7. The exactness gate, and the hole it would otherwise have
+
+Two mixture cartridges through the 64-seed survey (`train/survey_exact.sh`,
+19 generated tokens per seed, ROM against host reference token by token):
+
+| cartridge | image | banks | result |
+| --- | ---: | ---: | --- |
+| 4 identical experts (the control) | 319,504 B | 38 | **1,216 / 1,216 EXACT** |
+| 8 trained experts, 12k steps | 548,880 B | 66 | **1,216 / 1,216 EXACT** |
+
+`max\|dW\| = 0` over 249,856 and 446,464 ternary weights respectively, decoded
+back out of `stream.bin` by `train/verify_pack.py`, which follows the absolute
+bank numbers in the header tables and never calls the packer's own code.
+`routebank.bin` agrees with the trained routing table on 64/64 entries. The
+shared matrices decode **identically from every one of the 8 header tables** -
+without that check an expert reading the shared weights from the wrong bank
+would produce a model that is not the model that was trained.
+
+**The hole a survey can have here.** 1,216/1,216 proves nothing about expert 7
+if the survey never routes to expert 7 - its header table, its bank numbers
+and its copy of the lookup tables would all be untested and the gate would
+still be green. `train/expert_coverage.py` counts it:
+
+```
+64 seeds x 20 positions = 1,280 routed token-positions
+  expert 0     189   14.8%      expert 4     127    9.9%
+  expert 1     103    8.0%      expert 5     223   17.4%
+  expert 2     197   15.4%      expert 6     145   11.3%
+  expert 3     177   13.8%      expert 7     119    9.3%
+experts never routed: none
+distinct experts per seed: min 6  max 8  mean 7.27
+```
+
+Every expert is exercised between 103 and 223 times, and a single 19-token run
+touches six to eight of the eight. The gate is a real gate.

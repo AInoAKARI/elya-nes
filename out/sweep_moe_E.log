@@ -1,3 +1,6 @@
 route bal   N=8  load 0.125 0.124 0.127 0.125 0.126 0.125 0.124 0.124  (max/min = 1.03)
 moe_n8bal60k_s2              step     1  fit 7.4984  val 7.5274  density 0.5510  7s
 moe_n8bal60k_s2              step   500  fit 2.9721  val 2.9679  density 0.5502  93s
+moe_n8bal60k_s2              step  1000  fit 2.7511  val 2.7486  density 0.5497  180s
+moe_n8bal60k_s2              step  1500  fit 2.5518  val 2.5479  density 0.5493  271s
+moe_n8bal60k_s2              step  2000  fit 2.4289  val 2.4471  density 0.5485  361s
