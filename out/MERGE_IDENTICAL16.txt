@@ -1,0 +1,30 @@
+COMPOSITION CONTROL: 16 IDENTICAL experts under the EXACT normaliser
+
+train/replicate_experts.py turns the softmax branch's own shipping npz into
+a 16-expert npz whose experts hold the same weights, routed tok % 16 so the
+routed bank changes as often as it can.  Every mixture mechanism runs - the
+router, 16 header tables, 16 copies of the lookup tables INCLUDING the exact
+normaliser's three, 87 stream banks, the absolute sentinel leaving the shared
+region and coming back three times a token - and the arithmetic is the dense
+model's, so the output must be the dense output BYTE FOR BYTE.  Any
+difference is a bug in the merge, not a difference in the model.
+
+wrote /tmp/rep/rep16_exact.npz: 16 identical experts, route spread
+weights_on_cart              839680
+nexp                         16
+stream_banks                 87
+header_bytes                 5680
+routebank.bin agrees with the trained route: 64/64 entries
+max|dW| = 0   over 839680 ternary weights -> EXACT
+TOKENS MATCHING: 19/19  -> EXACT
+  TOTAL     21436620 cycles    11.9773 s   (mean 1128243 cycles/token)
+
+dense  cartridge tokens : [1, 4, 2, 0, 20, 18, 33, 0, 44, 18, 0, 8, 3, 58, 29, 24, 49, 26, 2, 0]
+16-expert same weights  : [1, 4, 2, 0, 20, 18, 33, 0, 44, 18, 0, 8, 3, 58, 29, 24, 49, 26, 2, 0]
+IDENTICAL: True
+
+dense, same weights, same normaliser : 1,129,375 cycles/token, 19/19 EXACT
+the 1,132-cycle difference is layout, not arithmetic: an expert region's
+chunks are bank-aligned, so the walk crosses a different number of bank
+boundaries.  The mixture branch saw the same sign on its own 4-identical-
+expert control (1,116,592 against a dense 1,117,063).
