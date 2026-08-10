@@ -1,0 +1,26 @@
+CYCLES/TOKEN, the same 2 x 2, each cell's OWN trained seed-1 cartridge
+measured on this tree (MAME 0.277, write tap, 19 tokens, mean).
+
+dense_pow2   TOKENS MATCHING: 19/19  -> EXACT   TOTAL     21227718 cycles    11.8606 s   (mean 1117248 cycles/token)   nnz=52246
+dense_exact  TOKENS MATCHING: 19/19  -> EXACT   TOTAL     21458141 cycles    11.9893 s   (mean 1129375 cycles/token)   nnz=52764
+n8_pow2      TOKENS MATCHING: 19/19  -> EXACT   TOTAL     21339639 cycles    11.9231 s   (mean 1123138 cycles/token)   nnz=232339
+n8_exact     TOKENS MATCHING: 19/19  -> EXACT   TOTAL     21554217 cycles    12.0430 s   (mean 1134432 cycles/token)   nnz=233408
+
+| cycles/token | pow2 + AV_SHIFT 2 | exact + AV_SHIFT 3 | A costs |
+|---|---:|---:|---:|
+| dense     | 1,117,248 | 1,129,375 | +12127 (+1.085%) |
+| 8 experts | 1,123,138 | 1,134,432 | +11294 (+1.006%) |
+| B costs   | +5890 (+0.527%) | +5057 (+0.448%) | |
+
+if the two COSTS added, the merged cell would be
+    1,117,248 +12127 +5890 = 1,135,265
+measured merged cell      1,134,432
+INTERACTION               -833 cycles (-0.075% of a token)
+
+total merged cost against dense + pow2: +17184 cycles, +1.538%
+
+Each cell is that cell's OWN 60,000-step seed-1 model, so these numbers
+carry the models' different sparsities with them (52,246 / 52,764 nonzero
+dense, 232,339 / 233,408 across the mixture cartridge).  That is the
+honest comparison for 'what does the shipping cartridge cost', and it is
+why the kernel's own share was separated on each branch instead.
