@@ -6,18 +6,62 @@ reference over 19 generated tokens - now with **trained weights**, so it says
 something.
 
 ```
-seed token 'b'      -> 'big friends. she was so hap'
-seed token ', '     -> ', he saw a big dad and said'
-seed token 'en'     -> 'enture. he was so happy and sai'
-seed token '!'      -> '! he was so happy. she was so '
+seed token 'b'      -> 'because he was so happy and sa'
+seed token 'd'      -> 'day, they had a big boy na'
+seed token 'j'      -> 'jack for a long friend. '
+seed token 'l'      -> 'lily was very happy and saw a b'
 ```
 
-102,400 ternary weights (52,764 nonzero), 4-bit activations, a 64-symbol
-vocabulary, trained on TinyStories with quantisation-aware training so the
-forward pass the trainer sees is the forward pass the 6502 executes. 0.631
-seconds per token on a 1.79 MHz 2A03.
+**446,464** ternary weights on the cartridge, **102,400** of them streamed per
+token, 4-bit activations, a 64-symbol vocabulary, trained on TinyStories with
+quantisation-aware training so the forward pass the trainer sees is the
+forward pass the 6502 executes. 0.634 seconds per token on a 1.79 MHz 2A03.
 
 Every number in `FINDINGS.md` is measured. Nothing here is estimated.
+
+### The two wins compose: 8 experts AND an exact softmax normaliser
+
+Two lines of work landed on this tree from separate branches - an exact
+softmax normaliser (below) and a mixture of experts (below that) - and the
+obvious question is whether their gains add or get in each other's way. All
+four cells of the 2 x 2 were retrained here, 60,000 steps, two seeds each, so
+that the comparison is one tree and one estimator:
+
+| val nats/char | power-of-two normaliser | **exact normaliser** |
+|---|---:|---:|
+| dense | 1.4020 / 1.4096 = 1.4058 | 1.3754 / 1.3779 = 1.3766 |
+| **8 experts** | 1.2202 / 1.2221 = 1.2211 | 1.1932 / 1.1898 = **1.1915** |
+
+```
+A, exact normalisation:  -0.0292 at dense capacity,  -0.0296 at 8 experts
+B, 8 experts:            -0.1847 under pow2,         -0.1851 under exact
+additive prediction   1.4058 -0.0292 -0.1847 = 1.1920
+measured                                        **1.1915**
+interaction                                       -0.0005   (seed spread 0.0076)
+```
+
+**They add.** The interaction is inside the seed spread under both estimators
+this repo uses, and it has the sign of very slightly *more* than additive.
+The cycles add too: 1,117,248 -> 1,129,375 (A) -> 1,134,432 (both), against an
+additive prediction of 1,135,265.
+
+| | dense + pow2 | **merged cartridge** |
+|---|---:|---:|
+| val nats/char, seed 1 / seed 2 | 1.4020 / 1.4096 | **1.1932 / 1.1898** |
+| ternary weights on the cartridge | 102,400 | **446,464** |
+| ternary weights streamed per token | 102,400 | 102,400 |
+| mean cycles/token | 1,117,248 | **1,134,432** (+1.54%) |
+| seconds/token | 0.6243 | **0.6338** |
+| image | 106,512 B, 12 banks | 548,880 B, 66 banks |
+| ROM vs host, 64-seed survey | 1,216/1,216 | **1,216/1,216**, both seeds: **2,432/2,432** |
+
+One correction falls out of doing this on one tree. The softmax result below
+was published as **-0.0375** nats/char against a dense baseline of 1.4141 that
+came from two older arms; against a dense control trained here the same effect
+is **-0.0292**, and -0.0296 at 8 experts. The effect is real, non-overlapping
+and reproduces at both capacities - it is 0.008 smaller than published, and
+the reason is the baseline, not the mechanism. Full arithmetic in
+`FINDINGS.md`.
 
 ### The integer softmax was throwing away a quarter of its budget
 
@@ -32,6 +76,11 @@ which moves from 2 to 3 once the accumulator is bigger:
 |---|---|---|---|
 | val nats/char, seed 1 / seed 2 | 1.4133 / 1.4149 | 1.3957 / 1.3848 | **1.3754 / 1.3779** |
 | mean | 1.4141 | 1.3902 | **1.3766** (**-0.0375, 2.65%**) |
+
+(The 1.4141 baseline is `runs/final_av2_bpe64_tau0.75` and `runs/t20_final_s2`,
+older arms from a different implementation of the same forward pass. Against a
+dense + pow2 control trained on the merged tree the effect is -0.0292; see the
+2 x 2 above.)
 | mean cycles/token | 1,116,979 | 1,121,121 | **1,129,291** (+1.10%) |
 | ROM vs host | 1,216/1,216 (64 seeds) | 1,216/1,216 | **1,216/1,216 (64 seeds)** |
 
@@ -92,7 +141,7 @@ walks stay at 102,400 while the weights on the cartridge do not.
 | ternary weights on the cartridge | 102,400 | **446,464** |
 | ternary weights streamed per token | 102,400 | **102,400** |
 | val nats/char, seed 1 / seed 2 | 1.4020 / 1.4096 | **1.2202 / 1.2221** |
-| mean cycles/token | 1,116,979 | **1,123,138** (+0.55%) |
+| mean cycles/token | 1,117,063 | **1,123,138** (+0.54%) |
 | seconds/token | 0.6241 | **0.6275** |
 | image | 106,512 B, 12 banks | 548,880 B, 66 banks |
 | ROM vs host, 64-seed survey | 1,216/1,216 EXACT | **1,216/1,216 EXACT** |
@@ -113,7 +162,7 @@ And the ceiling was built.  `rom/bankprobe.s` maps a 1 MB image and confirms
 
 | N | weights on cart | image | **val nats/char** | cycles/token | ROM vs host |
 |---:|---:|---:|---:|---:|---|
-| 1 | 102,400 | 106,512 B | 1.4020 / 1.4096 | 1,116,979 | 1,216/1,216 |
+| 1 | 102,400 | 106,512 B | 1.4020 / 1.4096 | 1,117,063 | 1,216/1,216 |
 | 8 | 446,464 | 548,880 B | **1.2202 / 1.2221** | 1,123,138 | 1,216/1,216 |
 | 16 | 839,680 | **1,007,632 B** | **1.1671** (1 seed) | 1,125,463 | 1,216/1,216 |
 
@@ -156,20 +205,24 @@ ROM that runs perfectly and says the wrong thing.
 | CPU clock | **derived**, not assumed: 1,789,772 Hz (MAME truncates 21477272/12) |
 | datasheet calibration | **28/28, 0 mismatches**, bit-identical over 3 runs |
 | primitives vs prior run | **19/19 match** |
-| bank crossings per token | **6** - and a switch costs **73 cycles measured in the loop**, not the 6-cycle datasheet store.  511 cycles/token, 0.046% |
+| bank crossings per token | **6** dense, **13** for the 8-expert mixture - and a switch costs **73 cycles measured in the loop**, not the 6-cycle datasheet store.  949.8 cycles/token, 0.084% |
 | ternary kernel | **10.688 cycles/MAC** asymptotic vs the 8-cycle primitive |
-| ROM vs host reference, T = 20 | **19/19 tokens EXACT** at every one of 64 seed tokens: **1,216/1,216** |
+| ROM vs host reference, T = 20 | **19/19 tokens EXACT** at every one of 64 seed tokens: **1,216/1,216** per cartridge |
 | ROM vs host reference, T = 85 | **84/84 tokens EXACT**, at three independent seed tokens: **252/252** |
 | trained model (T = 20) | val **2.0546 nats/token = 1.4133 nats/char** (uniform 4.1589) |
 | trained model (T = 85) | val **2.0856 nats/token = 1.4347 nats/char** - longer context, worse |
-| **8-expert mixture (T = 20)** | val **1.7738 / 1.7766 = 1.2202 / 1.2221 nats/char**, two seeds - **13% better than dense, non-overlapping** |
-| **mixture cost** | **+0.55% cycles/token**, 4.36x the parameters on the cartridge |
-| **mixture ROM vs host** | **1,216/1,216 tokens EXACT**, all 8 experts routed inside the survey |
-| nonzero weights | **52,207** of 102,400 (density 0.5098) |
-| cycles per token (T = 20, shipped) | 1,085,675 (pos 0) .. 1,147,754 (pos 18), mean **1,116,979** |
+| **8-expert mixture, power-of-two normaliser** | val **1.7738 / 1.7766 = 1.2202 / 1.2221 nats/char**, two seeds - **13% better than dense, non-overlapping** |
+| **SHIPPING: 8 experts + exact normaliser** | val **1.7346 / 1.7296 = 1.1932 / 1.1898 nats/char**, two seeds |
+| **shipping cost** | **+1.54% cycles/token** against dense + pow2, 4.36x the parameters on the cartridge |
+| **shipping ROM vs host** | **2,432/2,432 tokens EXACT** - 64 seed tokens on each of the two seeds' cartridges, every expert routed in both |
+| **do the two wins add?** | **yes**: interaction **-0.0005 nats/char** against a seed spread of 0.0076, and **-833 cycles** against an additive prediction of 1,135,265 |
+| nonzero weights (dense, 2026-08-08 arm) | **52,207** of 102,400 (density 0.5098) |
+| nonzero weights (shipping mixture) | **233,408** of 446,464 on the cartridge, 53,266 streamed per token |
+| cycles per token (T = 20, shipping mixture) | 1,101,416 (pos 0) .. 1,165,451 (pos 18), mean **1,134,432** |
+| cycles per token (T = 20, dense + pow2) | mean **1,117,248** |
 | attention at full context (T = 20) | **86,142 cycles, 7.3%** of a token (was 302,624, 21.6%) |
 | attention kernels | **8.00 cycles/MAC** measured, self-modified operands in PRG-RAM |
-| wall clock at 1,789,772 Hz | **0.6241 s/token** at T = 20 |
+| wall clock at 1,789,772 Hz | **0.6338 s/token** at T = 20, shipping mixture (0.6243 dense + pow2) |
 | cycles per token (T = 85, legacy attention) | 1,103,387 (pos 0) .. 2,295,963 (pos 83), mean **1,697,916** |
 | attention share at full context (T = 85) | **52.9%**, on the legacy attention path - see below |
 | independent emulator | ares 147 gives the **identical** 19 tokens (random-init build) |
@@ -201,6 +254,10 @@ train/   prep_corpus.py   the 64-symbol charset, the BPE, the story-disjoint spl
          perpos.py        held-out loss POSITION BY POSITION
          attnspan.py      how far back the attention actually reaches
          route.py         the four routing tables, all 11 cycles on the 6502
+         factorial.sh     the 2 x 2: {dense, 8 experts} x {pow2, exact}
+         factorial_table.py  that 2 x 2, and whether the two effects add
+         link_variants.sh every build variant, assembled and linked
+         eval_npz.py      one held-out estimator for every arm
          replicate_experts.py  N IDENTICAL experts: the mixture's control arm
          expert_coverage.py    proves the survey routes to every expert
          moe_gate.sh      pack, prove, run, cover, survey, profile
