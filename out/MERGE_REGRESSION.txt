@@ -1,0 +1,36 @@
+MERGE REGRESSION: both branches' SHIPPING cartridges, rebuilt from source
+on the merged tree and re-run against the host reference.
+
+=== A. the softmax branch's shipping arm ===================================
+runs/smxfinal_av3_exact_s1.npz   dense, exact normaliser, AV_SHIFT=3
+weights    102400   nonzero 52764   density 0.5153
+max|dW| = 0   over 102400 ternary weights -> EXACT
+TOKENS MATCHING: 19/19  -> EXACT
+  TOTAL     21458141 cycles    11.9893 s   (mean 1129375 cycles/token)
+published on main:  1,129,291 cycles/token, 19/19 EXACT
+
+=== B. the mixture branch's shipping arm ===================================
+runs/moe_n8bal60k_s1.npz   8 experts, power-of-two normaliser, AV_SHIFT=2
+weights    446464   nonzero 232339   density 0.5204
+max|dW| = 0   over 446464 ternary weights -> EXACT
+TOKENS MATCHING: 19/19  -> EXACT
+  TOTAL     21339639 cycles    11.9231 s   (mean 1123138 cycles/token)
+published on moe:   1,123,138 cycles/token, 19/19 EXACT
+
+=== the +84 cycles on arm A, accounted for ==================================
+The mixture branch changed the header-table sentinel from "advance to the next
+bank" to "select this ABSOLUTE bank", because a mixture walk leaves the shared
+region for an expert's banks and comes back, which an increment cannot say.
+A dense build pays for that in two ways, both of which the merged tree inherits:
+
+  header rows, main   1414   sentinels 6
+  header rows, merged 1415   sentinels 7   (the walk now names its FIRST bank
+                                            instead of assuming bank 0)
+  cost   one extra sentinel body           71 cycles   (measured in situ on moe)
+       + 2 cycles x 6 pre-existing switches 12 cycles
+                                          --------
+                                            83 cycles/token predicted
+  measured  1,129,375 - 1,129,291 =         84 cycles/token   (+0.0074%)
+
+Not a merge error; a merge COST, and it is the price of one header format
+instead of two.

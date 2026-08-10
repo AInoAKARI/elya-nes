@@ -1,0 +1,6 @@
+route bal   N=8  load 0.125 0.124 0.127 0.125 0.126 0.125 0.124 0.124  (max/min = 1.03)
+n8_exact_s1                  step     1  fit 7.4957  val 7.5177  density 0.5511  2s
+n8_exact_s1                  step   500  fit 2.9330  val 2.9331  density 0.5504  25s
+n8_exact_s1                  step  1000  fit 2.7120  val 2.7075  density 0.5501  48s
+n8_exact_s1                  step  1500  fit 2.4860  val 2.4809  density 0.5498  72s
+n8_exact_s1                  step  2000  fit 2.3652  val 2.3821  density 0.5489  95s

@@ -1,0 +1,6 @@
+dense_pow2_s1                step     1  fit 8.1972  val 8.2335  density 0.5503  1s
+dense_pow2_s1                step   500  fit 3.1129  val 3.1132  density 0.5484  21s
+dense_pow2_s1                step  1000  fit 2.9071  val 2.9053  density 0.5475  40s
+dense_pow2_s1                step  1500  fit 2.7369  val 2.7282  density 0.5455  59s
+dense_pow2_s1                step  2000  fit 2.6122  val 2.6299  density 0.5446  78s
+dense_pow2_s1                step  2500  fit 2.5576  val 2.5630  density 0.5423  97s

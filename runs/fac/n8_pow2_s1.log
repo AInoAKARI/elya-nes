@@ -1,0 +1,4 @@
+route bal   N=8  load 0.125 0.124 0.127 0.125 0.126 0.125 0.124 0.124  (max/min = 1.03)
+n8_pow2_s1                   step     1  fit 7.5804  val 7.6014  density 0.5511  2s
+n8_pow2_s1                   step   500  fit 2.9703  val 2.9707  density 0.5506  38s
+n8_pow2_s1                   step  1000  fit 2.7448  val 2.7425  density 0.5499  74s
