@@ -1,0 +1,19 @@
+runs/moe_n16bal60k_s1.npz: 64 seeds x 20 positions = 1280 routed token-positions
+  expert 0     121    9.5%
+  expert 1      78    6.1%
+  expert 2      70    5.5%
+  expert 3      77    6.0%
+  expert 4     103    8.0%
+  expert 5      61    4.8%
+  expert 6      90    7.0%
+  expert 7      73    5.7%
+  expert 8      77    6.0%
+  expert 9      83    6.5%
+  expert 10     74    5.8%
+  expert 11     32    2.5%
+  expert 12    104    8.1%
+  expert 13     38    3.0%
+  expert 14     99    7.7%
+  expert 15    100    7.8%
+experts never routed: none
+distinct experts per seed: min 9  max 14  mean 12.05

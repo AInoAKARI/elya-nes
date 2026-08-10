@@ -3138,3 +3138,41 @@ comparable with the 1,697,916 recorded for the trained long-context
 cartridge - different weights, different nonzero count. What it establishes is
 that the legacy attention path still walks an absolute-sentinel header table
 correctly, which is the only thing the mixture change could have broken there.
+
+## 15. The ceiling cartridge: 16 experts, 1 MB, 839,680 ternary weights
+
+The bank-budget probe said 127 of 128 banks answer. The layout said 16 experts
+need 122 of them. So it was built and gated - one seed, 60,000 steps, same
+recipe.
+
+```
+image                            1,007,632 bytes, 122 banks
+ternary weights on the cartridge   839,680        (8.2x the dense model)
+index bytes streamed per token      52,958        (dense: 52,207, +1.4%)
+                                    per expert: 52,788 .. 53,124
+bank switches per token                 12        (dense: 7)
+
+max|dW| decoded back out of stream.bin    0  over 839,680 weights
+routebank.bin vs the trained route        64 / 64
+ROM vs host reference, seed token 1       19 / 19 EXACT
+64-seed survey                            1,216 / 1,216 EXACT
+experts routed inside the survey          all 16, none missed
+
+cycles/token                       1,125,463    (+0.76% over 1,116,979)
+val                                1.6966 nats/token = 1.1671 nats/char
+```
+
+**A one-megabyte NES cartridge running an 8.2x model for 0.76% more time.**
+One seed, so this is a data point and not a two-seed claim like the N = 8
+result; it is reported as one.
+
+### The whole curve, at 60,000 steps
+
+| N | weights on cart | banks | image | **val nats/char** | cycles/token |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 102,400 | 12 | 106,512 B | 1.4020 / 1.4096 | 1,116,979 |
+| 8 | 446,464 | 66 | 548,880 B | **1.2202 / 1.2221** | 1,123,138 |
+| 16 | 839,680 | 122 | 1,007,632 B | **1.1671** (1 seed) | 1,125,463 |
+
+Loss falls by 17% from N = 1 to N = 16. Cycles rise by 0.76%. Every row is
+1,216/1,216 exact against the host reference.
