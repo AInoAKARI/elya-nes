@@ -36,7 +36,7 @@ BIAS     = 7     # activations stored as value+7 in 0..14
 
 K_SHIFT  = int(os.environ.get("NES_K_SHIFT", "2"))   # Wq/Wk/Wv/Wo/W1
 W2_SHIFT = int(os.environ.get("NES_W2_SHIFT", "3"))  # W2 (128 inputs)
-AV_SHIFT = int(os.environ.get("NES_AV_SHIFT", "2"))  # attention value sum
+AV_SHIFT = int(os.environ.get("NES_AV_SHIFT", "3"))  # attention value sum
 SM_SHIFT = int(os.environ.get("NES_SM_SHIFT", "3"))  # score difference -> exp
 
 # ---------------------------------------------------------------------------
@@ -88,9 +88,14 @@ PMUL_SHIFT = 2 + (SM_TARGET // 8).bit_length() - 1   # 8->2, 16->3, 32->4
 # stops being free.
 PROW_FITS_ONE_BYTE = SM_TARGET <= 16
 
-# AV_SHIFT was 4 in the first cut of this port.  It is now 2, and the reason
-# it is 2 rather than the 1 the range argument demands is a measured negative -
-# see FINDINGS, "Fixing the attention shift made it WORSE".
+# AV_SHIFT was 4 in the first cut of this port, then 2, and is now 3.  It is
+# NOT the 1 the range argument demands: 1 reaches all 15 output levels with
+# 0.00% saturation and measures WORST of a five-point ladder, twice, under two
+# different normalisers.  3 reaches FOUR levels and measures best.  It moved
+# from 2 to 3 when the softmax normaliser changed, because the exact
+# normaliser hands out a larger realised sum so the accumulator is bigger -
+# which is exactly why the ladder was re-run rather than assumed to carry.
+# See FINDINGS, "Fixing the attention shift made it WORSE" and "A knock-on".
 # The attention accumulator is provably bounded: the quantised softmax
 # normalises so that sum(p_t) <= 8 and every value nibble is in -7..7, so
 # sum_t floor(p_t*v_t/4) cannot exceed 7*8/4 = 14.  Shifting that by 4 leaves

@@ -3091,3 +3091,61 @@ five. `AV_SHIFT = 3` reaches **four** levels and is the best. This is the same
 shape the original ladder found and it is now measured twice, under two
 different normalisers. Whatever the attention output is for, it is not for
 carrying a finely graded number.
+
+# THE SHIPPING CONFIGURATION: exact normalisation + `AV_SHIFT = 3`
+
+60,000 steps, two seeds, everything else matched to the shipped recipe:
+
+| arm | seed 1 | seed 2 | **mean** | range |
+| --- | ---: | ---: | ---: | --- |
+| shipped: pow2, `AV_SHIFT = 2` | 1.4133 | 1.4149 | **1.4141** | [1.4133, 1.4149] |
+| exact, `AV_SHIFT = 2` | 1.3957 | 1.3848 | **1.3902** | [1.3848, 1.3957] |
+| **exact, `AV_SHIFT = 3`** | **1.3754** | **1.3779** | **1.3766** | **[1.3754, 1.3779]** |
+
+**-0.0375 nats/char, 2.65%, ranges nowhere near overlapping** - the worst run
+of the new pair beats the best run of the old by 0.0354, against seed spreads
+of 0.0016 and 0.0025.
+
+For scale that is **two thirds of what ternarising the weights costs** (0.055),
+recovered from the softmax's normaliser and one requantise shift.
+
+## Cycles
+
+`runs/smxfinal_av3_exact_s1.npz`, seed token 1:
+
+| | shipped | final | delta |
+| --- | ---: | ---: | ---: |
+| **mean cycles/token** | **1,116,979** | **1,129,291** | **+12,312 (+1.10%)** |
+| seconds/token @ 1.79 MHz | 0.6241 | **0.6310** | +0.0069 |
+| pos 18: softmax | 19,462 | 23,995 | **+4,533** |
+| pos 18: AV kernel | 9,444 | **9,220** | **-224** |
+| pos 18: QK kernel | 39,986 | 39,982 | -4 |
+| pos 18: attention accounted | 86,073 | 90,296 | +4,223 |
+| pos 18: token total | 1,155,700 | 1,167,327 | +11,627 |
+
+**Where the +11,627 goes, since only +4,223 of it is attention.** The new
+model has **52,764** nonzero weights against the shipped model's **52,207** -
+557 more, at the measured ~10 cycles per ternary multiply-add, which is about
+5,600 cycles of gather it pays and the old one did not. That is a property of
+*this* trained model, not of the kernel: the exact normaliser leaves the
+attention slightly more useful, so training keeps slightly more weights.
+Anyone rebuilding at a lower `tau` would move it back. The +1.10% is the
+honest end-to-end number and the +4,223 is the part the kernel change owns.
+
+**The AV kernel got FASTER.** 9,444 -> 9,220 cycles, because this model's
+attention is marginally sparser (1.52 live positions per head against the
+`AV_SHIFT = 2` exact model's 1.55) - `AV_SHIFT = 3` is a coarser output and
+the model leans on slightly fewer positions to produce it.
+
+## Final AV sparsity, `AV_SHIFT = 3`
+
+| | shipped | final | 
+| --- | ---: | ---: |
+| live positions per head | 1.25 | **1.52** |
+| **AV multiply-adds hitting a zero** | **87.54%** | **84.82%** |
+| AV accumulator range | -14..14 | -14..12 |
+| AV accumulator saturation | 0.00% | **0.00%** |
+| AV output levels used | 8 of 15 | **4 of 15** |
+
+The sparsity the AV chain lives on is intact: 84.8% of its potential
+multiply-adds are still absent rather than executed.
