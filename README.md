@@ -46,6 +46,37 @@ distance went from 0.91 to 7.82 and 13.7% of its mass now lands beyond what
 positions the short-context model wins everywhere. **The ceiling is capacity,
 not context.** Full argument in `FINDINGS.md`.
 
+### So capacity was bought instead - and it worked
+
+A flash cartridge holds far more than an original NES cart, so the mixture
+build keeps attention, the embedding and the head shared and gives the
+feed-forward block of every layer **N copies**, routed by a 64-byte table on
+the current token id.  One expert streams per token, so the weights the 6502
+walks stay at 102,400 while the weights on the cartridge do not.
+
+| | dense | 8-expert mixture |
+|---|---|---|
+| ternary weights on the cartridge | 102,400 | **446,464** |
+| ternary weights streamed per token | 102,400 | **102,400** |
+| val nats/char, seed 1 / seed 2 | 1.4020 / 1.4096 | **1.2202 / 1.2221** |
+| mean cycles/token | 1,116,979 | **1,123,138** (+0.55%) |
+| seconds/token | 0.6241 | **0.6275** |
+| image | 106,512 B, 12 banks | 548,880 B, 66 banks |
+| ROM vs host, 64-seed survey | 1,216/1,216 EXACT | **1,216/1,216 EXACT** |
+
+Two seeds each and the groups are nowhere near overlapping: the worst mixture
+seed beats the best dense seed by **0.180 nats/char**, twenty times the 0.009
+seed noise.  Quadrupling the context cost 52% more cycles and made the model
+0.019 nats/char **worse**; quadrupling the parameters cost 0.55% more cycles
+and made it 0.182 nats/char **better**.
+
+The routing table's construction turned out not to matter - balanced,
+bigram-clustered and outright random assignments land within 0.0032 nats/char
+of each other - so the router is one `lda routebank,x`, measured at **11
+cycles**.  The cartridge ceiling is **16 experts / 839,680 ternary weights**,
+at which point the layout needs 122 of the MMC5's 128 banks and the bank
+switches per token are still 12.
+
 ## Quick start
 
 ```sh
@@ -89,6 +120,9 @@ ROM that runs perfectly and says the wrong thing.
 | ROM vs host reference, T = 85 | **84/84 tokens EXACT**, at three independent seed tokens: **252/252** |
 | trained model (T = 20) | val **2.0546 nats/token = 1.4133 nats/char** (uniform 4.1589) |
 | trained model (T = 85) | val **2.0856 nats/token = 1.4347 nats/char** - longer context, worse |
+| **8-expert mixture (T = 20)** | val **1.7738 / 1.7766 = 1.2202 / 1.2221 nats/char**, two seeds - **13% better than dense, non-overlapping** |
+| **mixture cost** | **+0.55% cycles/token**, 4.36x the parameters on the cartridge |
+| **mixture ROM vs host** | **1,216/1,216 tokens EXACT**, all 8 experts routed inside the survey |
 | nonzero weights | **52,207** of 102,400 (density 0.5098) |
 | cycles per token (T = 20, shipped) | 1,085,675 (pos 0) .. 1,147,754 (pos 18), mean **1,116,979** |
 | attention at full context (T = 20) | **86,142 cycles, 7.3%** of a token (was 302,624, 21.6%) |

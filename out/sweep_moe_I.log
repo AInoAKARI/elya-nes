@@ -7,3 +7,5 @@ sw_n16bal_s1                 step  2000  fit 2.3346  val 2.3522  density 0.5489 
 sw_n16bal_s1                 step  2500  fit 2.2713  val 2.2728  density 0.5485  101s
 sw_n16bal_s1                 step  3000  fit 2.2202  val 2.2332  density 0.5483  121s
 sw_n16bal_s1                 step  3500  fit 2.1956  val 2.2129  density 0.5480  140s
+sw_n16bal_s1                 step  4000  fit 2.1651  val 2.1577  density 0.5476  159s
+sw_n16bal_s1                 step  4500  fit 2.1439  val 2.1494  density 0.5476  179s
