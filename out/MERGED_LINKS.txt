@@ -1,0 +1,33 @@
+=== dense, exact normaliser (the shipping configuration) ===
+  ok    exact dense (plain)                              106512 bytes
+  ok    exact dense -DPROFILE                            106512 bytes
+  ok    exact dense -DBENCH                              106512 bytes
+  ok    exact dense -DDEBUG -DDBGPOS=0                   106512 bytes
+  ok    exact dense -DATTNPROF                           106512 bytes
+  ok    exact dense -DATTNBENCH                          106512 bytes
+  ok    exact dense -DRAMEXEC                            106512 bytes
+  ok    exact dense -DBANKPROF                           106512 bytes
+=== dense, power-of-two normaliser (the regression target) ===
+  ok    pow2 dense AV_SHIFT=2                            106512 bytes
+  ok    pow2 dense AV_SHIFT=2 -DPROFILE                  106512 bytes
+=== dense, nine stream banks (rom/nn9.cfg) ===
+  ok    exact dense 9 stream banks                       122896 bytes
+=== dense, T = 85 (the legacy attention path) ===
+  ok    exact dense T=85 AV_SHIFT=2                      106512 bytes
+  ok    exact dense T=85 -DPROFILE                       106512 bytes
+=== mixture, exact normaliser (the MERGED configuration) ===
+  ok    exact mixture (plain)                            548880 bytes
+  ok    exact mixture -DPROFILE                          548880 bytes
+  ok    exact mixture -DBANKPROF                         548880 bytes
+  ok    exact mixture -DDEBUG -DDBGPOS=0                 548880 bytes
+  ok    exact mixture -DATTNPROF                         548880 bytes
+=== mixture, power-of-two normaliser ===
+  ok    pow2 mixture                                     548880 bytes
+  ok    pow2 mixture -DPROFILE                           548880 bytes
+=== the non-transformer ROMs ===
+  ok    calib                                             40976 bytes
+  ok    prim                                              73744 bytes
+  ok    mmc1                                              73744 bytes
+  ok    mmc3                                              73744 bytes
+-----------------------------------------
+variants linked: 24   failed: 0

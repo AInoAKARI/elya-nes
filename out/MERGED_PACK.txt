@@ -12,3 +12,13 @@ tokens                       [1, 4, 2, 0, 20, 18, 33, 36, 43, 18, 38, 14, 26, 51
 ntok                         19
 weights_npz                  runs/fac/n8_exact_s1.npz
 seed_tok                     1
+
+embed.bin  max|d| = 0   over 4096 values
+pos.bin    max|d| = 0   over 1280 values
+weights    446464   nonzero 233408   density 0.5228
+routebank.bin agrees with the trained route: 64/64 entries
+
+max|dW| = 0   over 446464 ternary weights -> EXACT
+
+-rw-rw-r-- 1 scott scott 548880 Aug 10 10:16 out/nn.nes
+-rw-rw-r-- 1 scott scott 548880 Aug 10 10:16 out/nnprof.nes

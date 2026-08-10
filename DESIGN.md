@@ -324,6 +324,13 @@ bank S + N*K + 2 + e         expert e's HEADER TABLE + a copy of the lookup
 last bank                    code, chains, vectors
 ```
 
+The copy at `$D700` is 2,063 bytes under the power-of-two normaliser and
+**2,101** under the exact one, which adds `tbl_e8lo`, `tbl_e8hi` and
+`tbl_p4`. Those three have to be in the per-expert copy rather than in the
+fixed bank because the normaliser walks them inside `softmax`, with `$C000`
+showing whichever bank the router chose. `tbl_pv` goes the other way: one copy
+in the fixed bank, because that bank is mapped whichever expert won.
+
 Two things make this work at all:
 
 * **The sentinel carries an absolute bank number.**  `$FF, bank, 0, 0`.  The
@@ -559,3 +566,20 @@ PRG-RAM kernels reach it with a plain absolute `adc`. The overflow was
 initially invisible because `build.sh` piped `ld65` through `grep` and lost
 its exit status; that is fixed, and it is recorded in FINDINGS because it
 nearly produced a measurement of a stale ROM.
+
+**Update, from the merge.** Two numbers here move once both branches are on
+one tree, and they move in opposite directions:
+
+* The `$C000` table bank now holds **2,101** bytes of lookup tables, not
+  2,063: the exact normaliser adds `tbl_e8lo`, `tbl_e8hi` (`EXP_N` bytes each)
+  and `tbl_p4` (`SM_TARGET` bytes), 38 in all at the shipping configuration.
+  The argument for evicting `tbl_pv` is unchanged and stronger.
+* Those 38 bytes are the one part of the exact normaliser that a mixture build
+  has to **duplicate per expert**. They are read inside `softmax`, and
+  `softmax` runs with `$C000` showing the bank the router chose, so a single
+  shared copy would simply not be mapped. `tbl_pv` is the opposite case and
+  needs exactly one copy for the same reason it was evicted - the fixed bank
+  is mapped whichever expert won. `host/ref.py` emits both placements, and
+  every per-expert copy is `.assert`-ed to land at the same address as expert
+  0's, which is the only thing standing between a routed token and reading its
+  exp table out of thin air.
