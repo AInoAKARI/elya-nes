@@ -84,8 +84,17 @@ SEEDTOK  = 1
 ; model needs; a denser trained model needs more, so this is a build define
 ; and rom/nn9.cfg is the matching linker config.  The fixed windows sit
 ; immediately after the stream banks, so their bank numbers derive from it.
+.ifdef MOE
+; A mixture build's bank map is COMPUTED by host/ref.py - how many shared
+; stream banks, how many per expert, where the per-expert header banks land -
+; and written out as an include, so the packer, the assembler and the linker
+; config cannot disagree about it.  Defines NEXPERT, NSHAREDB, NEXPBANK,
+; NSTREAM, EMBBANK, POSBANK, HDRBANK0, TBLBANK, CODEBANK, NPRGUNITS.
+.include "moe.inc"
+.else
 .ifndef NSTREAM
 NSTREAM  = 7
+.endif
 .endif
 ; The embedding is NVOCAB*NDMODEL = 4,096 bytes and the positional table is
 ; NCTX*NDMODEL.  While the two fit one 8 KB window together they share the
@@ -94,11 +103,14 @@ NSTREAM  = 7
 ; The bank NUMBERS do not move either way, so the linker config, the iNES
 ; header and the ROM image are the same size in both cases.
 POSINEMB = (NVOCAB + NCTX) * NDMODEL <= $2000
+.ifndef MOE
 EMBBANK  = $80 + NSTREAM          ; $A000 window: embedding (+ positions)
 POSBANK  = $80 + NSTREAM + 1      ; $A000 window: positional table
 TBLBANK  = $80 + NSTREAM + 2      ; $C000 window: row headers + tables
 CODEBANK = $80 + NSTREAM + 4      ; $E000 window: code, chains, vectors
                                   ; ($80 + NSTREAM + 3 is the spare bank)
+NPRGUNITS = (NSTREAM + 5) / 2
+.endif
 
 BIASV    = 7
 BLOCKSZ  = 16
@@ -143,6 +155,22 @@ PMARK_COST = 12
     ldx xsave2              ; 3   = 12 cycles, A/Y/carry untouched
 .endif
 .endmacro
+
+; The weight-stream bank switch, bracketed in situ.  The MoE plan is "one
+; expert streams per token", which is the same instruction sequence with a
+; different bank number, so what it costs INSIDE the token loop is the number
+; the plan lives or dies on.  Measured, not quoted from the MMC5 datasheet:
+; the datasheet's 6 cycles is the `sta $5114` alone and this body is a good
+; deal more than that.
+.macro BMARK v
+.ifdef BANKPROF
+    stx xsave2              ; 3
+    ldx #v                  ; 2
+    stx MARKER              ; 4
+    ldx xsave2              ; 3   = 12 cycles, A/Y/carry untouched
+.endif
+.endmacro
+BMARK_COST = 12
 
 ; ---- fixed pages in system RAM (constants, NOT bss - see nn.cfg) ----------
 ; The per-position arrays (SCORL, SCORH, EXPE, P4HI) are NCTX entries each, so
@@ -333,16 +361,34 @@ PTBL:       .res 65
 ; ===========================================================================
 .segment "HEADER"
     .byte "NES", $1A
-    .byte (NSTREAM + 5) / 2 ; 16 KB units: NSTREAM + emb + pos + tbl + spare
+    .byte NPRGUNITS         ; 16 KB units: NSTREAM + emb + pos + tbl + spare
                             ; + code.  The spare bank exists only so that the
                             ; bank count stays even and the image is a whole
-                            ; number of 16 KB iNES units.
+                            ; number of 16 KB iNES units.  A mixture build
+                            ; takes this from the generated moe.inc.
     .byte 1
     .byte $52               ; mapper 5, battery
     .byte $00
     .byte 4                 ; 32 KB PRG-RAM (measured: 4 real banks)
     .byte 0, 0, 0, 0, 0, 0, 0
 
+.segment "EMBED"
+    .incbin "out/model/embed.bin"
+.if POSINEMB
+    .incbin "out/model/pos.bin"     ; POSTAB = EMBED + NVOCAB*NDMODEL
+.else
+.segment "POS"
+    .incbin "out/model/pos.bin"     ; POSTAB = $A000 in POSBANK
+.endif
+
+.ifdef MOE
+; Generated: one .incbin per shared and expert stream bank, then one header
+; bank per expert - each holding that expert's header table AND its own copy
+; of the lookup tables, because the $C000 window can only show one of them and
+; the tables are read while the headers are being walked.  The table copies
+; are .assert-ed to land at identical addresses in every bank.
+.include "moebanks.inc"
+.else
 .segment "STREAM0"
     .incbin "out/model/stream.bin", $0000, $2000
 .segment "STREAM1"
@@ -362,15 +408,6 @@ PTBL:       .res 65
     .incbin "out/model/stream.bin", $E000, $2000
 .segment "STREAM8"
     .incbin "out/model/stream.bin", $10000, $2000
-.endif
-
-.segment "EMBED"
-    .incbin "out/model/embed.bin"
-.if POSINEMB
-    .incbin "out/model/pos.bin"     ; POSTAB = EMBED + NVOCAB*NDMODEL
-.else
-.segment "POS"
-    .incbin "out/model/pos.bin"     ; POSTAB = $A000 in POSBANK
 .endif
 
 .segment "HEADERS"
@@ -399,6 +436,12 @@ tbl_e8lo:   .incbin "out/model/tbl_e8lo.bin"   ; e * SM_TARGET, 16 bit
 tbl_e8hi:   .incbin "out/model/tbl_e8hi.bin"
 tbl_p4:     .incbin "out/model/tbl_p4.bin"     ; p -> p<<4
 .endif
+.endif      ; end of the dense (non-MOE) bank map.  A mixture build emits the
+            ; same eight aligned tables PLUS the exact normaliser's three, once
+            ; per expert header bank, from moebanks.inc - and .assert-s that
+            ; every copy lands at the same address.  Those three are read
+            ; DURING softmax, while $C000 shows the ROUTED EXPERT's bank, so
+            ; there is no build in which one shared copy would be visible.
 
 .segment "PVTABLE"
 ; The AV product table.  Separate from tbl_mul because AV's high nibble is an
@@ -406,6 +449,11 @@ tbl_p4:     .incbin "out/model/tbl_p4.bin"     ; p -> p<<4
 ; SM_TARGET = 8 the two agree on every row AV reads.  Page aligned for the
 ; same reason tbl_mul is: av_patch writes p<<4 into the operand's LOW byte and
 ; the high byte is assembled, so the row address costs one store.
+;
+; ONE copy for every build, mixture included: PVTABLE loads into the FIXED
+; $E000 bank, which is mapped whatever the router did, so an expert's AV chain
+; reaches it without a switch.  That is also why it sits OUTSIDE the .ifdef MOE
+; above - duplicating it per expert would cost 256 bytes a bank for nothing.
 tbl_pv:     .incbin "out/model/tbl_pv.bin"
     .assert PBLOCK * PVMAX <= 255, error, "AV block would set carry"
     .assert PMAX <= 15, error, "a probability nibble no longer fits p<<4"
@@ -1203,6 +1251,17 @@ forward:
     jsr dbg_dump_x
 .endif
 
+.ifdef MOE
+    ; The router.  One indexed load says which header bank this token's expert
+    ; keeps its table in; the header table then names every stream bank the
+    ; walk needs, expert banks included.  Bracketed by the same markers the
+    ; bank switch uses so the cost is measured, not counted.
+    BMARK 60
+    ldx curtok
+    lda routebank,x
+    sta MMC5_PRGC000
+    BMARK 61
+.endif
     lda #0
     sta wbank
     lda #$80
@@ -1329,6 +1388,15 @@ row64_pos:
 
 savmagic:
     .byte $45, $4C, $59, $41    ; "ELYA"
+
+.ifdef MOE
+; THE ROUTER.  routebank[tok] is the MMC5 bank number of the header table for
+; the expert that token routes to, generated by host/ref.py from the same
+; table the trainer stamped into the npz.  It lives in the fixed $E000 bank
+; because it has to be readable while any other bank is mapped.
+routebank:
+    .incbin "out/model/routebank.bin"
+.endif
 
 mul64lo:
     .byte 0, 64, 128, 192
@@ -1459,14 +1527,22 @@ read_header:
     lda (hptr),y
     cmp #$FF
     bne @ok
-    inc wbank
-    lda wbank
+    BMARK 50
+    ; The sentinel carries the ABSOLUTE bank number in its second byte rather
+    ; than meaning "the next one".  A mixture build's walk leaves the shared
+    ; banks for an expert's and comes back three times a token, which an
+    ; increment cannot express; the dense build simply emits 0,1,2,... and
+    ; pays the two extra cycles.
+    iny
+    lda (hptr),y
+    sta wbank
     ora #$80
     sta MMC5_PRG8000
     jsr chain_reset         ; X = 0, chain back to page $80
     jsr hdr_advance
     ldy hy
     lda (hptr),y
+    BMARK 51
 @ok:
     sta npos
     iny

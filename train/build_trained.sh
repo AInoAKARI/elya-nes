@@ -27,6 +27,7 @@ export NES_STREAM_BANKS
 if [ "$NES_STREAM_BANKS" -eq 7 ]; then CFG=rom/nn.cfg
 elif [ "$NES_STREAM_BANKS" -eq 9 ]; then CFG=rom/nn9.cfg
 else echo "no linker config for $NES_STREAM_BANKS stream banks"; exit 2; fi
+rm -f out/model/moe.inc out/model/moebanks.inc out/model/nnmoe.cfg
 NES_WEIGHTS="$NPZ" NES_SEED_TOK="$SEED" \
     python3 host/ref.py out/model | tee out/model/pack_report.txt
 
@@ -47,7 +48,16 @@ build() {
     grep -v "Segment 'CHARS' does not exist" out/$name.ldlog \
         | grep -v "Segment 'POS' does not exist" || true
 }
-DEFS="-DNCTX=$NES_T -DNSTREAM=$NES_STREAM_BANKS -DSEEDTOK=$SEED"
+# A mixture build's bank map is COMPUTED by the packer, which writes both the
+# assembler include and the linker config, so neither is passed in here.  The
+# presence of out/model/moe.inc is the signal, and it is removed first so a
+# dense build can never pick up a stale one.
+if [ -f out/model/moe.inc ]; then
+    CFG=out/model/nnmoe.cfg
+    DEFS="-DNCTX=$NES_T -DSEEDTOK=$SEED -DMOE"
+else
+    DEFS="-DNCTX=$NES_T -DNSTREAM=$NES_STREAM_BANKS -DSEEDTOK=$SEED"
+fi
 build nn      rom/nn.s $CFG $DEFS
 build nnprof  rom/nn.s $CFG $DEFS -DPROFILE
 ls -l out/nn.nes out/nnprof.nes

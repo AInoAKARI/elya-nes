@@ -303,6 +303,16 @@ def gen_ternary(rng, rows, cols):
 
 
 class Model:
+    # Mixture of experts.  nexp == 1 is the dense model and every code path
+    # below then behaves exactly as it did before MoE existed.
+    nexp = 1
+    nexp_head = 1
+    route = [0] * V
+
+    @property
+    def moe(self):
+        return self.nexp > 1 or self.nexp_head > 1
+
     def __init__(self, seed=20260807):
         rng = LCG(seed)
         self.emb = [[rng.below(15) - 7 for _ in range(D)] for _ in range(V)]
@@ -314,10 +324,12 @@ class Model:
                 "Wk": gen_ternary(rng, D, D),
                 "Wv": gen_ternary(rng, D, D),
                 "Wo": gen_ternary(rng, D, D),
-                "W1": gen_ternary(rng, F, D),
-                "W2": gen_ternary(rng, D, F),
+                # one-element lists: the dense model is the E = 1 case of the
+                # mixture, not a separate shape
+                "W1": [gen_ternary(rng, F, D)],
+                "W2": [gen_ternary(rng, D, F)],
             })
-        self.head = gen_ternary(rng, V, D)
+        self.head = [gen_ternary(rng, V, D)]
 
     @classmethod
     def from_npz(cls, path):
@@ -362,26 +374,60 @@ class Model:
         m.pos = [[int(v) for v in row] for row in z["pos"]]
         assert len(m.emb) == V and len(m.emb[0]) == D, (len(m.emb), len(m.emb[0]))
         assert len(m.pos) == T and len(m.pos[0]) == D
+        # Mixture of experts: the trainer stamps the expert count and the
+        # routing table into the npz for the same reason it stamps the shifts
+        # and the context length - a model packed against the wrong routing
+        # table runs perfectly and says the wrong thing.
+        if "_moe" in z:
+            m.nexp, m.nexp_head = (int(v) for v in z["_moe"])
+            m.route = [int(v) for v in z["_route"]]
+            assert len(m.route) == V
+            assert max(m.route) < max(m.nexp, m.nexp_head)
+        else:
+            m.nexp, m.nexp_head, m.route = 1, 1, [0] * V
+
+        def tern(key, rows, cols):
+            a = z[key]
+            g = [[int(v) for v in row] for row in a]
+            assert len(g) == rows and len(g[0]) == cols, (key, len(g), len(g[0]))
+            assert set(v for row in g for v in row) <= {-1, 0, 1}
+            return g
+
         m.layers = []
         for l in range(L):
             d = {}
-            for nm in ("Wq", "Wk", "Wv", "Wo", "W1", "W2"):
-                a = z["L%d_%s" % (l, nm)]
-                d[nm] = [[int(v) for v in row] for row in a]
-                assert set(v for row in d[nm] for v in row) <= {-1, 0, 1}
+            for nm in ("Wq", "Wk", "Wv", "Wo"):
+                d[nm] = tern("L%d_%s" % (l, nm), D, D)
+            for nm, rows, cols in (("W1", F, D), ("W2", D, F)):
+                if m.nexp == 1:
+                    d[nm] = [tern("L%d_%s" % (l, nm), rows, cols)]
+                else:
+                    d[nm] = [tern("L%d_%s_e%d" % (l, nm, e), rows, cols)
+                             for e in range(m.nexp)]
             m.layers.append(d)
-        m.head = [[int(v) for v in row] for row in z["head"]]
-        assert len(m.head) == V and len(m.head[0]) == D
+        if m.nexp_head == 1:
+            m.head = [tern("head", V, D)]
+        else:
+            m.head = [tern("head_e%d" % e, V, D) for e in range(m.nexp_head)]
         return m
 
     # -- the ordered list of matrices exactly as the stream stores them -----
-    def matrices(self):
+    # SHARED chunks and EXPERT chunks alternate, because that is the order
+    # rom/nn.s consumes them: attention, then feed-forward, per layer.  A chunk
+    # is the unit the packer bank-aligns.
+    def chunks(self, e=0):
         out = []
         for l in range(L):
-            for name in ("Wq", "Wk", "Wv", "Wo", "W1", "W2"):
-                out.append(("L%d.%s" % (l, name), self.layers[l][name]))
-        out.append(("head", self.head))
+            out.append(("S", [("L%d.%s" % (l, n), self.layers[l][n])
+                              for n in ("Wq", "Wk", "Wv", "Wo")]))
+            out.append(("E", [("L%d.W1" % l, self.layers[l]["W1"][e]),
+                              ("L%d.W2" % l, self.layers[l]["W2"][e])]))
+        out.append(("E" if self.nexp_head > 1 else "S",
+                    [("head", self.head[e if self.nexp_head > 1 else 0])]))
         return out
+
+    def matrices(self, e=0):
+        return [nm for kind, ms in self.chunks(e) for nm in ms]
 
 
 # ---------------------------------------------------------------------------
@@ -428,9 +474,24 @@ def matmul(mat_split, x, k, relu=False, raw=False):
 class Runner:
     def __init__(self, model):
         self.m = model
-        self.split = {}
-        for name, mat in model.matrices():
-            self.split[name] = [split_row(r) for r in mat]
+        # split[e] holds every matrix expert e uses.  The shared ones are the
+        # SAME list object in every entry, so this costs nothing and lets
+        # step() do one dictionary lookup instead of branching on whether the
+        # matrix it wants is routed.
+        ne = max(model.nexp, model.nexp_head)
+        shared = {}
+        self.split = []
+        for e in range(ne):
+            d = {}
+            for kind, ms in model.chunks(e):
+                for name, mat in ms:
+                    if kind == "S":
+                        if name not in shared:
+                            shared[name] = [split_row(r) for r in mat]
+                        d[name] = shared[name]
+                    else:
+                        d[name] = [split_row(r) for r in mat]
+            self.split.append(d)
         # KV cache holds NIBBLES, exactly as the $6000 window does
         self.K = [[[0] * D for _ in range(T)] for _ in range(L)]
         self.Vc = [[[0] * D for _ in range(T)] for _ in range(L)]
@@ -451,13 +512,17 @@ class Runner:
 
     def step(self, tok, p):
         m = self.m
+        # The router: one table lookup on the CURRENT token, which is all the
+        # 6502 can afford and - see FINDINGS - all any pre-layer router could
+        # see anyway.
+        sp = self.split[m.route[tok]]
         x = [clamp7(m.emb[tok][j] + m.pos[p][j]) for j in range(D)]
-        stage = {"tok": tok, "pos": p, "x0": list(x)}
+        stage = {"tok": tok, "pos": p, "x0": list(x), "exp": m.route[tok]}
 
         for l in range(L):
-            q = matmul(self.split["L%d.Wq" % l], x, K_SHIFT)
-            kv = matmul(self.split["L%d.Wk" % l], x, K_SHIFT)
-            vv = matmul(self.split["L%d.Wv" % l], x, K_SHIFT)
+            q = matmul(sp["L%d.Wq" % l], x, K_SHIFT)
+            kv = matmul(sp["L%d.Wk" % l], x, K_SHIFT)
+            vv = matmul(sp["L%d.Wv" % l], x, K_SHIFT)
             for j in range(D):
                 self.K[l][p][j] = nib(kv[j])
                 self.Vc[l][p][j] = nib(vv[j])
@@ -491,14 +556,14 @@ class Runner:
                 stage["q"] = list(q)
                 stage["scores"] = dbg["scores"]
                 stage["p"] = dbg["p"]
-            o = matmul(self.split["L%d.Wo" % l], att, K_SHIFT)
+            o = matmul(sp["L%d.Wo" % l], att, K_SHIFT)
             x = [clamp7(x[j] + o[j]) for j in range(D)]
-            hdn = matmul(self.split["L%d.W1" % l], x, K_SHIFT, relu=True)
-            f = matmul(self.split["L%d.W2" % l], hdn, W2_SHIFT)
+            hdn = matmul(sp["L%d.W1" % l], x, K_SHIFT, relu=True)
+            f = matmul(sp["L%d.W2" % l], hdn, W2_SHIFT)
             x = [clamp7(x[j] + f[j]) for j in range(D)]
             stage["L%d.x" % l] = list(x)
 
-        logits = matmul(self.split["head"], x, 0, raw=True)
+        logits = matmul(sp["head"], x, 0, raw=True)
         best, bi = logits[0], 0
         for i in range(1, V):
             if logits[i] > best:
@@ -522,69 +587,171 @@ def generate(model, start_tok, n):
 # ---------------------------------------------------------------------------
 # packer: stream + headers, bank aware
 # ---------------------------------------------------------------------------
+ROWS_PER_TOKEN = L * (4 * D + F + D) + V     # 1,408: every row the ROM walks
+
+
 def nnz_of(rows):
     return sum(len(p) + len(n) for p, n in rows)
 
 
+def pack_region(chunks, first_bank):
+    """Lay a list of row-chunks into 8 KB banks, one chunk per fresh bank.
+
+    Every chunk starts at a bank boundary because the ROM's stream offset is
+    IMPLICIT: `chain_reset` puts the gather index back to 0 on every bank
+    switch, so the only place a walk can resume after leaving a region and
+    coming back is the start of a bank.  A chunk is therefore the unit that
+    can be interleaved with another region, and the shared attention rows and
+    an expert's feed-forward rows are exactly such chunks.
+
+    Each bank opens with BLOCK bytes of padding.  The ROM's gather chains
+    address the stream as (offset - BLOCK) so that the chain's base address is
+    page-aligned; without the pad that quantity goes negative at the start of
+    a bank and the chain pointer runs off the front of the chain table.  With
+    the base page-aligned the indexed load is 4 cycles instead of 5 - a
+    straight 1 cycle per MAC.
+
+    Returns (banks, events_per_chunk).  An event is ('bank', absolute_bank) or
+    ('row', pos_idx, neg_idx), in the order the ROM consumes them.
+    """
+    banks = []
+    per_chunk = []
+    for rows in chunks:
+        banks.append(bytearray(b"\x00" * BLOCK))     # fresh bank for the chunk
+        ev = [("bank", first_bank + len(banks) - 1)]
+        for p, n in rows:
+            need = len(p) + len(n)
+            # tracked EXPLICITLY rather than as len(stream) % BANK: a row that
+            # ends exactly on a bank boundary makes the modulo read 0, the pad
+            # is then never emitted, and the ROM's pointer underflows into
+            # chain -1 and executes garbage.  That is what happened the first
+            # time.
+            if len(banks[-1]) + need > BANK:
+                banks.append(bytearray(b"\x00" * BLOCK))
+                ev.append(("bank", first_bank + len(banks) - 1))
+            ev.append(("row", p, n))
+            banks[-1] += bytes(p) + bytes(n)
+        per_chunk.append(ev)
+    for b in banks:
+        b += b"\x00" * (BANK - len(b))
+    return banks, per_chunk
+
+
+def encode_headers(events):
+    """Events -> the ROM's 4-byte header rows.
+
+    A bank event is `$FF, bank, 0, 0`: the sentinel now carries the ABSOLUTE
+    bank number rather than meaning "increment".  That is what lets one header
+    table describe a walk that leaves the shared region for an expert's banks
+    and comes back, and it costs two cycles a switch over the increment form.
+    """
+    out = bytearray()
+    for ev in events:
+        if ev[0] == "bank":
+            assert 0 <= ev[1] < 128, ev
+            out += bytes([SENTINEL, ev[1], 0, 0])
+        else:
+            _, p, n = ev
+            d7 = -BIAS * (len(p) - len(n))
+            out += bytes([len(p), len(n), d7 & 0xFF, (d7 >> 8) & 0xFF])
+    return out
+
+
+def rows_of(mats):
+    return [split_row(r) for _, mat in mats for r in mat]
+
+
+def pack_streams(model, outdir):
+    """Emit stream.bin and the header table(s).  Returns a layout dict."""
+    ch = model.chunks(0)
+    if not model.moe:
+        rows = rows_of([nm for _, ms in ch for nm in ms])
+        banks, per_chunk = pack_region([rows], 0)
+        nsh = len(banks)
+        want = max(STREAM_BANKS, nsh)
+        if nsh > STREAM_BANKS:
+            raise SystemExit(
+                "stream needs %d banks but rom/nn.cfg provides %d.  nnz=%d"
+                % (nsh, STREAM_BANKS, nnz_of(rows)))
+        stream = bytearray()
+        for b in banks:
+            stream += b
+        stream += b"\x00" * ((want - nsh) * BANK)
+        hdr = encode_headers(per_chunk[0])
+        with open(os.path.join(outdir, "stream.bin"), "wb") as f:
+            f.write(bytes(stream))
+        with open(os.path.join(outdir, "headers.bin"), "wb") as f:
+            f.write(bytes(hdr))
+        return {"moe": 0, "banks": want, "header_bytes": len(hdr),
+                "nnz": nnz_of(rows),
+                "crossings": sum(1 for e in per_chunk[0] if e[0] == "bank") - 1}
+
+    # ---- mixture of experts ------------------------------------------------
+    ne = max(model.nexp, model.nexp_head)
+    shared_chunks = [rows_of(ms) for kind, ms in ch if kind == "S"]
+    sh_banks, sh_ev = pack_region(shared_chunks, 0)
+    nsh = len(sh_banks)
+
+    ex_banks, ex_ev = [], []
+    for e in range(ne):
+        chunks = [rows_of(ms) for kind, ms in model.chunks(e) if kind == "E"]
+        b, v = pack_region(chunks, 0)
+        ex_banks.append(b)
+        ex_ev.append(v)
+    per_exp = max(len(b) for b in ex_banks)
+
+    # re-base each expert's bank numbers now that the stride is known
+    for e in range(ne):
+        base = nsh + e * per_exp
+        ex_ev[e] = [[("bank", ev[1] + base) if ev[0] == "bank" else ev
+                     for ev in chunk] for chunk in ex_ev[e]]
+
+    stream = bytearray()
+    for b in sh_banks:
+        stream += b
+    for e in range(ne):
+        for b in ex_banks[e]:
+            stream += b
+        stream += b"\x00" * ((per_exp - len(ex_banks[e])) * BANK)
+
+    hdr_bytes = []
+    for e in range(ne):
+        ev, si, ei = [], 0, 0
+        for kind, _ in model.chunks(e):
+            if kind == "S":
+                ev += sh_ev[si]; si += 1
+            else:
+                ev += ex_ev[e][ei]; ei += 1
+        hdr_bytes.append(encode_headers(ev))
+
+    with open(os.path.join(outdir, "stream.bin"), "wb") as f:
+        f.write(bytes(stream))
+    for e in range(ne):
+        with open(os.path.join(outdir, "headers_e%d.bin" % e), "wb") as f:
+            f.write(bytes(hdr_bytes[e]))
+    nnz = sum(nnz_of(c) for c in shared_chunks) + sum(
+        sum(nnz_of(rows_of(ms)) for kind, ms in model.chunks(e) if kind == "E")
+        for e in range(ne))
+    nnz_sh = sum(nnz_of(c) for c in shared_chunks)
+    nnz_ex = [sum(nnz_of(rows_of(ms)) for kind, ms in model.chunks(e)
+                  if kind == "E") for e in range(ne)]
+    return {"moe": 1, "nexp": ne, "shared_banks": nsh, "expert_banks": per_exp,
+            "banks": len(stream) // BANK, "nnz": nnz,
+            "nnz_shared": nnz_sh, "nnz_expert": nnz_ex,
+            # index bytes actually STREAMED for one token: the shared rows plus
+            # the one expert the router picked.  The cartridge holds far more.
+            "nnz_per_token": [nnz_sh + x for x in nnz_ex],
+            "header_bytes": max(len(h) for h in hdr_bytes),
+            "crossings": max(len(h) for h in hdr_bytes) // 4 - ROWS_PER_TOKEN}
+
+
 def pack(model, outdir):
-    rows = []                       # (pos_idx, neg_idx) in stream order
-    for name, mat in model.matrices():
-        for r in mat:
-            rows.append(split_row(r))
-
-    # Each bank opens with BLOCK bytes of padding.  The ROM's gather chains
-    # address the stream as (offset - BLOCK) so that the chain's base address
-    # is page-aligned; without the pad that quantity goes negative at the start
-    # of a bank and the chain pointer runs off the front of the chain table.
-    # With the base page-aligned the indexed load is 4 cycles instead of 5 -
-    # a straight 1 cycle per MAC.
-    #
-    # bank_off is tracked EXPLICITLY rather than as len(stream) % BANK: a row
-    # that ends exactly on a bank boundary makes the modulo read 0, the pad is
-    # then never emitted, and the ROM's pointer underflows into chain -1 and
-    # executes garbage.  That is exactly what happened the first time.
-    stream = bytearray(b"\x00" * BLOCK)
-    bank_off = BLOCK
-    headers = bytearray()
-    crossings = 0
-    for p, n in rows:
-        need = len(p) + len(n)
-        if bank_off + need > BANK:
-            headers += bytes([SENTINEL, 0, 0, 0])
-            stream += b"\x00" * (BANK - bank_off)     # fill out this bank
-            stream += b"\x00" * BLOCK                 # open the next one
-            bank_off = BLOCK
-            crossings += 1
-        d7 = -BIAS * (len(p) - len(n))
-        headers += bytes([len(p), len(n), d7 & 0xFF, (d7 >> 8) & 0xFF])
-        stream += bytes(p) + bytes(n)
-        bank_off += need
-    if len(stream) % BANK:
-        stream += b"\x00" * (BANK - len(stream) % BANK)
-
-    # rom/nn.s incbins the stream at FIXED offsets 0, $2000 ... so the image
-    # has to be exactly STREAM_BANKS banks long whatever the model's sparsity.
-    # A trained model is sparser than the 50%-dense random init, so without
-    # this the last incbin reads past the end of the file; a denser one would
-    # silently lose its tail rows, which is far worse.
-    want = STREAM_BANKS * BANK
-    if len(stream) > want:
-        raise SystemExit(
-            "stream needs %d banks but rom/nn.cfg provides %d.  nnz=%d "
-            "(density %.4f); the 7-bank window caps density at about %.4f."
-            % (len(stream) // BANK, STREAM_BANKS, nnz_of(rows),
-               nnz_of(rows) / float(sum(len(m) * len(m[0])
-                                        for _, m in model.matrices())),
-               (want - STREAM_BANKS * BLOCK) /
-               float(sum(len(m) * len(m[0]) for _, m in model.matrices()))))
-    stream += b"\x00" * (want - len(stream))
+    lay = pack_streams(model, outdir)
 
     def w(name, data):
         with open(os.path.join(outdir, name), "wb") as f:
             f.write(bytes(data))
 
-    w("stream.bin", stream)
-    w("headers.bin", headers)
     emb = bytearray()
     for t in range(V):
         emb += bytes((v & 0xFF) for v in model.emb[t])
@@ -673,16 +840,165 @@ def pack(model, outdir):
         f.write("PBLOCK   = %d\n" % PBLOCK)
         f.write("SM_EXACTNORM = %d\n" % (1 if SM_NORM == "exact" else 0))
 
-    nnz = sum(len(p) + len(n) for p, n in rows)
+    if model.moe:
+        emit_moe_layout(model, lay, outdir)
+
+    ne = max(model.nexp, model.nexp_head)
+    weights = sum(len(m) * len(m[0]) for _, m in model.matrices(0))
+    total = weights + (ne - 1) * sum(
+        len(m) * len(m[0]) for kind, ms in model.chunks(0) if kind == "E"
+        for _, m in ms)
     return {
-        "rows": len(rows),
-        "nnz": nnz,
-        "weights": sum(len(m) * len(m[0]) for _, m in model.matrices()),
-        "stream_bytes": len(stream),
-        "header_bytes": len(headers),
-        "banks": len(stream) // BANK,
-        "bank_crossings_per_token": crossings,
+        "rows": ROWS_PER_TOKEN,
+        "nnz": lay["nnz"],
+        "nnz_per_token": lay.get("nnz_per_token", lay["nnz"]),
+        "weights_per_token": weights,
+        "weights_on_cart": total,
+        "nexp": ne,
+        "stream_banks": lay["banks"],
+        "header_bytes": lay["header_bytes"],
+        "banks": lay["banks"],
+        "bank_crossings_per_token": lay["crossings"],
     }
+
+
+# ---------------------------------------------------------------------------
+# cartridge layout for a mixture build
+#
+# The bank map, the assembler constants, the .incbin lines and the linker
+# config all have to agree about where every expert lives.  They are generated
+# from ONE computation here rather than written out four times, because four
+# hand-maintained copies of a bank map is precisely the kind of thing that
+# produces a ROM which runs and lies.
+# ---------------------------------------------------------------------------
+TABLE_FILES = ["tbl_mul", "tbl_q2", "tbl_q3", "tbl_q4", "tbl_clamp",
+               "tbl_entoff", "tbl_blkcnt", "tbl_step"]
+# The unaligned tail, in the order rom/nn.s emits it for a dense build.  The
+# exact normaliser's three tables belong HERE and not in the fixed bank: the
+# normaliser walks them inside softmax, and softmax runs with $C000 showing
+# the ROUTED EXPERT's bank, so a single shared copy would simply not be
+# mapped.  They are tiny (2*EXP_N + SM_TARGET = 38 bytes at the shipping
+# configuration) and, like every other table copy, .assert-ed to land at the
+# same address in every expert's bank.
+TAIL_FILES = ["tbl_exp"] + (["tbl_e8lo", "tbl_e8hi", "tbl_p4"]
+                            if SM_NORM == "exact" else [])
+TAIL_BYTES = {"tbl_exp": EXP_N, "tbl_e8lo": EXP_N, "tbl_e8hi": EXP_N,
+              "tbl_p4": SM_TARGET}
+# Eight page-aligned 256-byte tables plus that tail.  With the power-of-two
+# normaliser the tail is the 15-byte exp table alone and this is the 2,063
+# bytes the mixture branch measured; with the exact normaliser it is 2,101.
+# Either way they start at $D700 and end below $E000.  At $D800 the exp table
+# overflowed the bank by exactly 15 bytes, which the linker caught; the start
+# is pinned rather than aligned so that every expert's copy lands at the same
+# address whatever its header table's length.
+TABLES_START = 0xD700
+TABLES_BYTES = 8 * 256 + sum(TAIL_BYTES[t] for t in TAIL_FILES)
+
+
+def emit_moe_layout(model, lay, outdir):
+    ne = lay["nexp"]
+    nsh, per_exp = lay["shared_banks"], lay["expert_banks"]
+    sb = nsh + ne * per_exp                      # first non-stream bank
+    emb, pos, hdr0 = sb, sb + 1, sb + 2
+    total = hdr0 + ne + 1                        # + the fixed code bank
+    if total % 2:                                # iNES counts 16 KB units
+        total += 1
+    code = total - 1
+    if total > 128:
+        raise SystemExit("layout needs %d banks; the MMC5 addresses 128" % total)
+    if lay["header_bytes"] > TABLES_START - 0xC000:
+        raise SystemExit("header table is %d bytes, the bank holds %d before "
+                         "the lookup tables at $%04X"
+                         % (lay["header_bytes"], TABLES_START - 0xC000,
+                            TABLES_START))
+    if TABLES_START + TABLES_BYTES > 0xE000:
+        raise SystemExit("the lookup tables do not fit above $%04X" % TABLES_START)
+
+    with open(os.path.join(outdir, "moe.inc"), "w") as f:
+        f.write("; generated by host/ref.py - do not edit\n")
+        f.write("NEXPERT   = %d\n" % ne)
+        f.write("NSHAREDB  = %d\n" % nsh)
+        f.write("NEXPBANK  = %d\n" % per_exp)
+        f.write("NSTREAM   = %d\n" % sb)
+        f.write("EMBBANK   = $%02X\n" % (0x80 + emb))
+        f.write("POSBANK   = $%02X\n" % (0x80 + pos))
+        f.write("HDRBANK0  = $%02X\n" % (0x80 + hdr0))
+        f.write("TBLBANK   = HDRBANK0\n")
+        f.write("CODEBANK  = $%02X\n" % (0x80 + code))
+        f.write("NPRGUNITS = %d\n" % (total // 2))
+
+    # route -> header bank, indexed by token id.  This IS the router.
+    with open(os.path.join(outdir, "routebank.bin"), "wb") as f:
+        f.write(bytes(0x80 + hdr0 + model.route[t] for t in range(V)))
+
+    with open(os.path.join(outdir, "moebanks.inc"), "w") as f:
+        f.write("; generated by host/ref.py - do not edit\n")
+        for b in range(sb):
+            f.write('.segment "STREAM%d"\n' % b)
+            f.write('    .incbin "out/model/stream.bin", $%X, $2000\n'
+                    % (b * BANK))
+        for e in range(ne):
+            f.write('.segment "HEADERS%d"\n' % e)
+            f.write('    .incbin "out/model/headers_e%d.bin"\n' % e)
+            f.write('.segment "TABLES%d"\n' % e)
+            sfx = "" if e == 0 else "_e%d" % e
+            for t in TABLE_FILES:
+                f.write("    .align $100\n")
+                f.write('%s%s: .incbin "out/model/%s.bin"\n' % (t, sfx, t))
+            for t in TAIL_FILES:
+                f.write('%s%s: .incbin "out/model/%s.bin"\n' % (t, sfx, t))
+            if e:
+                # Every expert's copy must land at the SAME address or a token
+                # routed to expert e reads its multiply table out of thin air.
+                # Asserted at assembly time, not hoped for.
+                for t in TABLE_FILES + TAIL_FILES:
+                    f.write('    .assert %s_e%d = %s, error, '
+                            '"expert %d table copy moved"\n' % (t, e, t, e))
+
+    with open(os.path.join(outdir, "nnmoe.cfg"), "w") as f:
+        f.write("# generated by host/ref.py - do not edit\n")
+        f.write("MEMORY {\n")
+        f.write("    ZP:     start = $0000, size = $0100, type = rw, define = yes;\n")
+        f.write("    RAM:    start = $0200, size = $0100, type = rw, define = yes;\n")
+        f.write("    HDR:    start = $0000, size = $0010, type = ro, file = %O, fill = yes;\n")
+        for b in range(sb):
+            f.write("    WS%d: start = $8000, size = $2000, type = ro, "
+                    "file = %%O, fill = yes, fillval = $00;\n" % b)
+        f.write("    EMB:    start = $A000, size = $2000, type = ro, file = %O, fill = yes, fillval = $00;\n")
+        f.write("    POS:    start = $A000, size = $2000, type = ro, file = %O, fill = yes, fillval = $00;\n")
+        for e in range(ne):
+            f.write("    HB%d: start = $C000, size = $2000, type = ro, "
+                    "file = %%O, fill = yes, fillval = $00;\n" % e)
+        for i in range(total - hdr0 - ne - 1):
+            f.write("    SPARE%d: start = $C000, size = $2000, type = ro, "
+                    "file = %%O, fill = yes, fillval = $00;\n" % i)
+        f.write("    PRGF:   start = $E000, size = $2000, type = ro, file = %O, fill = yes, fillval = $FF;\n")
+        f.write("    PRAM:   start = $8000, size = $1000, type = rw;\n")
+        f.write("    CHRROM: start = $0000, size = $2000, type = ro, file = %O, fill = yes, fillval = $00;\n")
+        f.write("}\n\nSEGMENTS {\n")
+        f.write("    HEADER:   load = HDR,  type = ro;\n")
+        for b in range(sb):
+            f.write("    STREAM%d:  load = WS%d, type = ro;\n" % (b, b))
+        f.write("    EMBED:    load = EMB,  type = ro,  start = $A000;\n")
+        f.write("    POS:      load = POS,  type = ro,  start = $A000;\n")
+        for e in range(ne):
+            f.write("    HEADERS%d: load = HB%d, type = ro,  start = $C000;\n" % (e, e))
+            f.write("    TABLES%d:  load = HB%d, type = ro,  start = $%04X;\n"
+                    % (e, e, TABLES_START))
+        f.write("    SMTABLES: load = EMB,  type = ro,  align = $100;\n")
+        f.write("    RAMKERN:  load = EMB,  run = PRAM, type = ro, define = yes;\n")
+        f.write("    CHAINS:   load = PRGF, type = ro,  start = $E000;\n")
+        f.write("    CODE:     load = PRGF, type = ro;\n")
+        # The AV product table goes in the FIXED bank for the same reason the
+        # dense configs put it there - the $C000 bank has no room - and a
+        # mixture build needs exactly one copy, because the fixed bank is
+        # mapped whichever expert the router chose.
+        f.write("    PVTABLE:  load = PRGF, type = ro,  align = $100;\n")
+        f.write("    VECTORS:  load = PRGF, type = ro,  start = $FFFA;\n")
+        f.write("    ZEROPAGE: load = ZP,   type = zp;\n")
+        f.write("    BSS:      load = RAM,  type = bss, define = yes;\n")
+        f.write("}\n")
+    lay["cart_banks"] = total
 
 
 def main():

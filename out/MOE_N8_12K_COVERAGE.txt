@@ -1,0 +1,11 @@
+runs/sw_n8bal_s1.npz: 64 seeds x 20 positions = 1280 routed token-positions
+  expert 0     189   14.8%
+  expert 1     103    8.0%
+  expert 2     197   15.4%
+  expert 3     177   13.8%
+  expert 4     127    9.9%
+  expert 5     223   17.4%
+  expert 6     145   11.3%
+  expert 7     119    9.3%
+experts never routed: none
+distinct experts per seed: min 6  max 8  mean 7.27

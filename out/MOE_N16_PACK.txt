@@ -1,0 +1,24 @@
+rows                         1408
+nnz                          441016
+nnz_per_token                [52788, 52886, 53072, 52811, 53034, 52931, 53124, 53001, 52968, 52878, 52903, 52985, 52823, 53119, 53073, 52925]
+weights_per_token            102400
+weights_on_cart              839680
+nexp                         16
+stream_banks                 102
+header_bytes                 5680
+banks                        102
+bank_crossings_per_token     12
+tokens                       [1, 20, 19, 19, 52, 5, 11, 24, 37, 13, 3, 40, 15, 60, 10, 45, 36, 43, 48, 21]
+ntok                         19
+weights_npz                  runs/moe_n16bal60k_s1.npz
+seed_tok                     1
+
+embed.bin  max|d| = 0   over 4096 values
+pos.bin    max|d| = 0   over 1280 values
+weights    839680   nonzero 441016   density 0.5252
+routebank.bin agrees with the trained route: 64/64 entries
+
+max|dW| = 0   over 839680 ternary weights -> EXACT
+
+-rw-rw-r-- 1 scott scott 1007632 Aug  9 22:16 out/nn.nes
+-rw-rw-r-- 1 scott scott 1007632 Aug  9 22:16 out/nnprof.nes

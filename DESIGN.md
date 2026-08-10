@@ -222,7 +222,8 @@ writable, executable, and independent of the `$6000` window.
 
 ## 3. PRG-ROM layout
 
-96 KB PRG in twelve 8 KB banks, MMC5 PRG mode 3.
+96 KB PRG in twelve 8 KB banks, MMC5 PRG mode 3.  A **mixture** build has a
+computed layout instead - see "Mixture of experts" at the end of this section.
 
 | window | reg | contents |
 |---|---|---|
@@ -276,17 +277,75 @@ when it steps from one bank to the next, in order.
 
 ```
 bank crossings per token = ceil(stream_bytes / 8192) - 1  ~= 6
-switch cost              = 6 cycles  (measured, MMC5)
-total                    ~= 42 cycles per token
+switch cost              = 73 cycles  (MEASURED IN THE LOOP, see below)
+total                    ~= 511 cycles per token
 ```
 
-Against a predicted ~800,000 cycles per token that is **0.005%**, or about
-**0.0008 cycles per MAC**. Bank switching is a non-issue for this port, and
+**Correction, from the MoE work.** This section used to say the switch cost
+was "6 cycles (measured, MMC5)" for a total of ~42 cycles a token. Six cycles
+is the `sta $5114` alone. What the loop actually pays is the whole sentinel
+body - bump the bank, rebuild the OR mask, store it, reset the self-modified
+chain pointer, step the header pointer, re-read the displaced header row - and
+a `-DBANKPROF` build brackets that body in situ and reports **71 cycles**
+(increment sentinel) or **73** (absolute sentinel), identically on every one
+of 114 and 247 samples respectively. The conclusion does not change: at 73
+cycles and 7 switches this is 511 cycles of 1,117,063, i.e. **0.046%**. But
+the old figure was wrong by 12x and is corrected here rather than left
+standing.
+
+Against a measured 1,117,063 cycles per token that is **0.046%**. Bank
+switching is a non-issue for this port, and
 the reason is structural, not lucky: the access pattern is a single forward
 sweep, never a random walk. (On MMC1 the same 7 switches would cost 210
 cycles - still nothing. The mapper choice matters for *code layout*, not for
 throughput, and MMC5 is chosen because 6 < 30 and because it gives three
 independent windows plus 32 KB of banked PRG-RAM.)
+
+### Mixture of experts: a computed bank map
+
+A mixture build keeps `Wq/Wk/Wv/Wo`, the embedding, the positional table and
+the head shared, and gives `W1`/`W2` of every layer N copies.  The weights
+STREAMED per token stay at 102,400; the weights ON THE CARTRIDGE become
+`53,248 + N x 49,152`.
+
+The bank map is computed by `host/ref.py` and written out as three generated
+artifacts - `moe.inc` (assembler constants), `moebanks.inc` (the `.incbin`
+lines) and `nnmoe.cfg` (the linker config) - because a bank map maintained by
+hand in three places is how a ROM comes to run perfectly and say the wrong
+thing.
+
+```
+bank 0 .. S-1                shared stream (attention rows + head)
+bank S + e*K .. +K-1         expert e's feed-forward rows
+bank S + N*K                 embedding (+ positions)
+bank S + N*K + 1             positional table
+bank S + N*K + 2 + e         expert e's HEADER TABLE + a copy of the lookup
+                             tables at $D700 (asserted identical addresses)
+last bank                    code, chains, vectors
+```
+
+Two things make this work at all:
+
+* **The sentinel carries an absolute bank number.**  `$FF, bank, 0, 0`.  The
+  old "increment" form cannot express a walk that leaves the shared region for
+  an expert's banks and comes back three times a token.
+* **Every region chunk starts at a bank boundary.**  The ROM's stream offset
+  is implicit - `chain_reset` puts the gather index back to 0 on every switch -
+  so the only place a walk can resume is the start of a bank.  This wastes
+  part of a bank per chunk and buys a sentinel with no resume offset in it.
+
+The router is the whole of the routing machinery:
+
+```
+    ldx curtok            ; 2
+    lda routebank,x       ; 4     which expert's header bank
+    sta MMC5_PRGC000      ; 4
+```
+
+Measured costs: 13 bank switches a token instead of 7, at 73 cycles, plus the
+10-cycle router = **448 cycles a token, 0.040%**.  The switch count is 13 at
+N = 4, 8 and 16 alike.  The ceiling is **N = 16** (122 of the MMC5's 128
+banks, 839,680 ternary weights); N = 17 needs 129 and the packer refuses.
 
 ### The page chains
 

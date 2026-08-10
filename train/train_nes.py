@@ -56,7 +56,7 @@ def sparsity(model):
     z = model.export_int()
     nnz = tot = 0
     for k, v in z.items():
-        if k in ("emb", "pos"):
+        if k in ("emb", "pos") or k.startswith("_"):
             continue
         nnz += int((v != 0).sum())
         tot += v.size
@@ -81,6 +81,12 @@ def main():
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--name", default=None)
     ap.add_argument("--out", default="runs")
+    ap.add_argument("--nexp", type=int, default=1,
+                    help="feed-forward experts; 1 is the dense baseline")
+    ap.add_argument("--moe-head", type=int, default=0,
+                    help="1 = the output head is also per-expert")
+    ap.add_argument("--route", default="bal", choices=("mod", "bal", "clus", "rand"))
+    ap.add_argument("--route-seed", type=int, default=1)
     a = ap.parse_args()
     name = a.name or ("%s_%s_tau%.2f_q%d_s%d" % (a.vocab, a.mode, a.tau, a.quant, a.seed))
     os.makedirs(a.out, exist_ok=True)
@@ -91,8 +97,19 @@ def main():
     gen = torch.Generator().manual_seed(a.seed)
     gev = torch.Generator().manual_seed(9999)
 
+    # The routing table is a property of the CORPUS, not of the training seed,
+    # so it is built from the fit split with its own seed.  Two arms that
+    # differ only in --seed must route identically or the comparison is
+    # measuring two things at once.
+    import route as R
+    rt = R.build(a.route, a.nexp, fit, seed=a.route_seed)
+    if a.nexp > 1:
+        print("route %-5s N=%d  %s" % (a.route, a.nexp, R.report(rt, fit, a.nexp)),
+              flush=True)
+
     model = M.NesModel(tau=a.tau, mode=a.mode, quant=a.quant,
-                       logit_scale=a.logit_scale).to(DEV)
+                       logit_scale=a.logit_scale, nexp=a.nexp,
+                       moe_head=bool(a.moe_head), route=rt).to(DEV)
     torch.manual_seed(a.seed)          # re-seed: NesModel uses its own generator
     with torch.no_grad():              # per-arm init so seeds actually differ
         for p in model.parameters():
@@ -131,6 +148,8 @@ def main():
         z["_smtarget"] = np.array([M.SM_TARGET], dtype=np.int16)
         np.savez(os.path.join(a.out, name + tag + ".npz"), **z)
         meta = dict(name=name + tag, vocab=a.vocab, tau=a.tau, mode=a.mode,
+                    nexp=a.nexp, moe_head=int(a.moe_head), route=a.route,
+                    route_seed=a.route_seed,
                     quant=a.quant, ctx=M.T, k_shift=M.K_SHIFT,
                     w2_shift=M.W2_SHIFT, av_shift=M.AV_SHIFT, sm_shift=M.SM_SHIFT,
                     steps=a.steps, batch=a.batch, lr=a.lr, seed=a.seed,

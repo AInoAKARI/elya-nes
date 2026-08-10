@@ -53,7 +53,10 @@ def main():
             asum += t - astart
 
     n = len(tok)
-    nnz = info["nnz"]
+    # For a mixture the cartridge nnz and the nnz actually STREAMED per token
+    # are different numbers, and the cycles/MAC figure wants the second one.
+    npt = info.get("nnz_per_token", info["nnz"])
+    nnz = int(round(sum(npt) / float(len(npt)))) if isinstance(npt, list) else npt
     rows = info["rows"]
     print("tokens profiled: %d   rows/token: %d   nnz/token: %d" % (n, rows, nnz))
 
@@ -80,7 +83,7 @@ def main():
         print("  --> ternary kernel: %.2f cycles per MAC (nnz = %d)"
               % (g / float(nnz), nnz))
         print("  --> ternary kernel: %.2f cycles per WEIGHT (%d weights)"
-              % (g / float(info["weights"]), info["weights"]))
+              % (g / float(info["weights_per_token"]), info["weights_per_token"]))
     return 0
 
 

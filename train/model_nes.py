@@ -193,21 +193,38 @@ def quant_act_tbl(w):
 
 # ---------------------------------------------------------------------------
 class NesModel(nn.Module):
-    def __init__(self, tau=1.0, mode="twn", quant=2, logit_scale=0.05):
+    def __init__(self, tau=1.0, mode="twn", quant=2, logit_scale=0.05,
+                 nexp=1, moe_head=False, route=None):
         """quant: 2 = full QAT (what the ROM runs)
                   1 = float weights, integer activations - isolates the cost of
                       ternarising the weights
                   0 = full fp32 control - isolates what this 3x64x64 shape can
-                      ever do, quantisation aside"""
+                      ever do, quantisation aside
+
+        nexp: number of feed-forward experts.  1 is the dense baseline and is
+              bit-identical to the pre-MoE model, including its RNG draws.
+        moe_head: also give the output head one matrix per expert.
+        route: (V,) integer expert assignment per vocabulary id.  The router
+              IS this table - see FINDINGS for why a table indexed by the
+              current token beats a learned projection on this machine."""
         super().__init__()
         self.tau, self.mode, self.quant = tau, mode, int(quant)
         self.qw = self.quant >= 2
         self.qa = self.quant >= 1
+        self.nexp = int(nexp)
+        self.moe_head = bool(moe_head)
+        self.nexp_head = self.nexp if self.moe_head else 1
+        E, EH = self.nexp, self.nexp_head
         g = torch.Generator().manual_seed(20260807)
 
         def p(*shape, s=1.0):
             return nn.Parameter(torch.randn(*shape, generator=g) * s)
 
+        # NOTE on RNG order: torch.randn draws a flat sequence and reshapes it,
+        # so p(1, FF, D) consumes exactly the draws p(FF, D) consumed.  At
+        # nexp = 1 every parameter in this model is therefore the same tensor
+        # the dense model had, which is what makes the E = 1 arm a true control
+        # rather than a re-run.
         self.emb = p(V, D, s=2.0)
         self.pos = p(T, D, s=1.0)
         self.Wq, self.Wk, self.Wv, self.Wo = (nn.ParameterList() for _ in range(4))
@@ -215,9 +232,14 @@ class NesModel(nn.Module):
         for _ in range(L):
             self.Wq.append(p(D, D)); self.Wk.append(p(D, D))
             self.Wv.append(p(D, D)); self.Wo.append(p(D, D))
-            self.W1.append(p(FF, D)); self.W2.append(p(D, FF))
-        self.head = p(V, D)
+            self.W1.append(p(E, FF, D)); self.W2.append(p(E, D, FF))
+        self.head = p(EH, V, D)
         self.logit_scale = nn.Parameter(torch.tensor(float(logit_scale)))
+
+        if route is None:
+            route = [0] * V
+        assert len(route) == V and max(route) < max(E, EH)
+        self.register_buffer("route", torch.tensor(list(route), dtype=torch.long))
 
         import numpy as np
         exptab = [max(0, min(64, int(round(64.0 * math.exp(
@@ -243,10 +265,52 @@ class NesModel(nn.Module):
             q = torch.clamp(q, min=0.0)
         return q
 
+    def _moe_ffn(self, x, l, ef):
+        """Feed-forward with one expert per position.
+
+        x  : (N, D) flattened positions
+        ef : (N,)   expert index per position, already routed
+
+        Each expert runs on its OWN positions only, gathered out and scattered
+        back, so the arithmetic per position is exactly the dense FFN and the
+        total work does not grow with the expert count.  That is the whole
+        point: the ROM streams one expert per token, and if the trainer ran all
+        of them and averaged it would be training a model the cartridge cannot
+        execute."""
+        w1 = self._w(self.W1[l])                      # (E, FF, D)
+        w2 = self._w(self.W2[l])                      # (E, D, FF)
+        if self.nexp == 1:
+            h = self._mm(x, w1[0], K_SHIFT, relu=True)
+            return self._mm(h, w2[0], W2_SHIFT)
+        out = x.new_zeros(x.shape[0], D)
+        for e in range(self.nexp):
+            sel = (ef == e).nonzero(as_tuple=True)[0]
+            if sel.numel() == 0:
+                continue
+            xe = x.index_select(0, sel)
+            he = self._mm(xe, w1[e], K_SHIFT, relu=True)
+            out = out.index_copy(0, sel, self._mm(he, w2[e], W2_SHIFT))
+        return out
+
+    def _moe_head(self, x, ef):
+        """Output head, optionally one matrix per expert.  Raw integer logits."""
+        hw = self._w(self.head)                       # (EH, V, D)
+        if self.nexp_head == 1:
+            return self._mm(x, hw[0], 0, raw=True)
+        out = x.new_zeros(x.shape[0], V)
+        for e in range(self.nexp_head):
+            sel = (ef == e).nonzero(as_tuple=True)[0]
+            if sel.numel() == 0:
+                continue
+            out = out.index_copy(0, sel,
+                                 self._mm(x.index_select(0, sel), hw[e], 0, raw=True))
+        return out
+
     # -----------------------------------------------------------------------
     def forward(self, idx):
         """idx: (B, T) int64.  Returns logits (B, T, V)."""
         B, Tn = idx.shape
+        ef = self.route[idx].reshape(-1)              # expert per position
         emb, pos = self._tbl(self.emb), self._tbl(self.pos)
         x = emb[idx] + pos[:Tn].unsqueeze(0)
         x = torch.clamp(x, -ACT_MAX, ACT_MAX)
@@ -284,8 +348,7 @@ class NesModel(nn.Module):
             x = x + o
             if self.qa:
                 x = torch.clamp(x, -ACT_MAX, ACT_MAX)
-            h = self._mm(x, self._w(self.W1[l]), K_SHIFT, relu=True)
-            f = self._mm(h, self._w(self.W2[l]), W2_SHIFT)
+            f = self._moe_ffn(x.reshape(-1, D), l, ef).reshape(B, Tn, D)
             x = x + f
             if self.qa:
                 x = torch.clamp(x, -ACT_MAX, ACT_MAX)
@@ -294,45 +357,63 @@ class NesModel(nn.Module):
         # RAW integer logits, exactly what the ROM argmaxes.  The training
         # temperature is applied by the caller so that this function stays a
         # bit-exact twin of ref.Runner.step.
-        return self._mm(x, self._w(self.head), 0, raw=True)
+        return self._moe_head(x.reshape(-1, D), ef).reshape(B, Tn, V)
 
     # -----------------------------------------------------------------------
     @torch.no_grad()
     def renorm_(self):
         """Keep every ternary matrix at unit mean-|w|.  The quantiser is scale
         invariant (delta is proportional to mean|w|), so this only stops the
-        latent weights from drifting numerically; it changes no forward value."""
+        latent weights from drifting numerically; it changes no forward value.
+
+        Expert stacks are normalised PER EXPERT, not over the stack: the
+        quantiser's delta is a per-row mean so the forward value is unchanged
+        either way, but a shared divisor lets a rarely-routed expert's latent
+        weights be dragged by a busy one, which is a real coupling between
+        arms that are supposed to be independent."""
         for pl in (self.Wq, self.Wk, self.Wv, self.Wo, self.W1, self.W2):
             for p in pl:
-                p.data /= p.data.abs().mean().clamp(min=1e-8)
-        self.head.data /= self.head.data.abs().mean().clamp(min=1e-8)
+                p.data /= p.data.abs().mean(dim=(-2, -1), keepdim=True).clamp(min=1e-8)
+        self.head.data /= self.head.data.abs().mean(dim=(-2, -1),
+                                                    keepdim=True).clamp(min=1e-8)
+
+    @torch.no_grad()
+    def _tern(self, w):
+        a = w.abs()
+        if self.mode == "twn":
+            delta = self.tau * a.mean(dim=-1, keepdim=True)
+            return torch.sign(w) * (a > delta).to(w.dtype)
+        s = a.mean(dim=-1, keepdim=True).clamp(min=1e-8) * self.tau
+        return torch.clamp(torch.round(w / s), -1.0, 1.0)
 
     @torch.no_grad()
     def export_int(self):
-        """Integer arrays exactly as host/ref.py wants them."""
+        """Integer arrays exactly as host/ref.py wants them.
+
+        At nexp = 1 the names are the dense model's, unchanged, so every
+        existing npz, packer and checker keeps working untouched."""
         import numpy as np
         out = {}
         out["emb"] = torch.clamp(torch.round(self.emb), -ACT_MAX, ACT_MAX).cpu().numpy().astype(np.int8)
         out["pos"] = torch.clamp(torch.round(self.pos), -ACT_MAX, ACT_MAX).cpu().numpy().astype(np.int8)
         for l in range(L):
             for nm, pl in (("Wq", self.Wq), ("Wk", self.Wk), ("Wv", self.Wv),
-                           ("Wo", self.Wo), ("W1", self.W1), ("W2", self.W2)):
-                w = pl[l]
-                a = w.abs()
-                if self.mode == "twn":
-                    delta = self.tau * a.mean(dim=-1, keepdim=True)
-                    q = torch.sign(w) * (a > delta).to(w.dtype)
+                           ("Wo", self.Wo)):
+                out["L%d_%s" % (l, nm)] = self._tern(pl[l]).cpu().numpy().astype(np.int8)
+            for nm, pl in (("W1", self.W1), ("W2", self.W2)):
+                q = self._tern(pl[l]).cpu().numpy().astype(np.int8)
+                if self.nexp == 1:
+                    out["L%d_%s" % (l, nm)] = q[0]
                 else:
-                    s = a.mean(dim=-1, keepdim=True).clamp(min=1e-8) * self.tau
-                    q = torch.clamp(torch.round(w / s), -1.0, 1.0)
-                out["L%d_%s" % (l, nm)] = q.cpu().numpy().astype(np.int8)
-        w = self.head
-        a = w.abs()
-        if self.mode == "twn":
-            delta = self.tau * a.mean(dim=-1, keepdim=True)
-            q = torch.sign(w) * (a > delta).to(w.dtype)
+                    for e in range(self.nexp):
+                        out["L%d_%s_e%d" % (l, nm, e)] = q[e]
+        q = self._tern(self.head).cpu().numpy().astype(np.int8)
+        if self.nexp_head == 1:
+            out["head"] = q[0]
         else:
-            s = a.mean(dim=-1, keepdim=True).clamp(min=1e-8) * self.tau
-            q = torch.clamp(torch.round(w / s), -1.0, 1.0)
-        out["head"] = q.cpu().numpy().astype(np.int8)
+            for e in range(self.nexp_head):
+                out["head_e%d" % e] = q[e]
+        if self.nexp > 1 or self.nexp_head > 1:
+            out["_route"] = self.route.cpu().numpy().astype(np.int16)
+            out["_moe"] = np.array([self.nexp, self.nexp_head], dtype=np.int16)
         return out

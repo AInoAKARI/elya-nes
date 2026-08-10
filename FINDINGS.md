@@ -3220,3 +3220,805 @@ seed ' the '        ->  ' the park in the story. she saw a '
   If a future model *did* need to spread over 20 positions, none of this work
   helps and the budget family in DESIGN section 6 is where to start - with the
   measurement that it currently buys nothing.
+---
+
+# Mixture of experts across spare PRG banks
+
+Continuation of the context result. `T = 20 -> T = 85` made the model worse
+(1.4133/1.4149 against 1.4347/1.4318 nats/char, two seeds each,
+non-overlapping) while the mechanism demonstrably worked - layer-2 mean
+attention distance 0.91 -> 7.82. Context is not the ceiling. Capacity is.
+
+The lever this journal tests: keep the 102,400-weight compute budget per token
+and buy PARAMETERS from cartridge ROM, which a flash cart has in abundance and
+an original NES cart did not. One expert streams per token; the cycles per
+token barely move; the parameter count multiplies.
+
+Everything below is measured on this tree unless it says otherwise.
+
+## 1. What a bank switch costs inside the token loop: 71 cycles
+
+The plan is "one expert streams per token", and an expert is selected by
+choosing a different **bank number**, so the only per-token cost that could
+kill it is the bank switch. The MMC5 datasheet number - 6 cycles for
+`sta $5114` - is not that cost; it is the store alone.
+
+The shipping ROM already switches stream banks six times per token, at the
+`$FF` sentinel in `read_header`. A new `-DBANKPROF` build brackets that body
+in situ with markers 50/51 (`tools/run_bank_profile.py`), so this is measured
+on real tokens rather than counted by hand.
+
+```
+tokens measured           19
+bank switches per token   6 6 6 6 6 6 6 6 ...
+bank-switch body, 114 samples
+  raw interval        min 83  max 83  mean 83.00
+  minus one BMARK     min 71  max 71  mean 71.00 cycles
+  histogram           71:114          <- every sample identical
+bank switching is        426.0 cycles/token = 0.0382% of a token
+```
+
+**71 cycles, exactly, 114 times out of 114.** The hand count agrees to the
+cycle, which is worth writing down because it means the body has no
+data-dependent path:
+
+```
+inc wbank            5
+lda wbank            3
+ora #$80             2
+sta MMC5_PRG8000     4     <- the datasheet's 6-cycle "bank switch" is this line
+jsr chain_reset      6 + 18   (2 lda#/sta zp pairs, ldx #0, rts)
+jsr hdr_advance      6 + 19   (lda/clc/adc/sta/bne/rts)
+ldy hy               3
+lda (hptr),y         5     <- re-read the header row the sentinel displaced
+                    ---
+                     71
+```
+
+So the datasheet store is 4 of the 71 cycles that a switch actually costs
+here, and 71 cycles is 0.0064% of a 1,116,979-cycle token. Six of them per
+token is 0.038%. **Bank switching is not a constraint on this design.** If an
+expert change cost ten switches per token it would still be under 0.1%.
+
+Recorded honestly: the BANKPROF image's own token cost is 1,116,492 against
+the shipping build's 1,116,979, i.e. -487 cycles with no arithmetic change.
+That is the same code-motion-across-page-boundaries effect FINDINGS already
+records for a five-byte edit; the 71-cycle body is a direct interval
+measurement and does not depend on it.
+
+## 2. The real bank budget: 127 of 128 banks, measured end to end
+
+The MMC5's PRG bank register is seven bits plus a ROM/RAM select, so the
+documentation says 128 banks of 8 KB = 1 MB. The shipping cartridge uses
+twelve of them, so nothing in this repository had ever exercised that claim.
+
+`rom/bankprobe.s` + `rom/bankprobe.cfg` build a **1,056,784-byte** image with
+every one of the 127 switchable banks stamped at both ends
+(`$8000 = bank ^ $5A`, `$9FFF = bank ^ $A5` - `tools/gen_bankstamp.py`),
+map each bank in turn through `$5114`, and check both stamps. Checking both
+ends is what separates "bank not mapped" from "bank mapped but truncated"; the
+XORs stop a stamp from ever equalling the bank number or the `$00`/`$FF` an
+unmapped window returns.
+
+```
+status OK
+markers [..., 200, 255]          200 = every stamped bank returned both stamps
+banks with BOTH stamps correct: 127 / 127
+failures: []
+```
+
+**127/127.** The chain that had to hold - MMC5 register, iNES PRG-size field
+(64 x 16 KB units), and MAME's mapper 5 - holds all the way to 1 MB. 1 MB is
+also the ceiling: an eighth bit does not exist in `$5114`.
+
+### What that leaves
+
+| | banks | bytes |
+| --- | ---: | ---: |
+| MMC5 addressable | 128 | 1,048,576 |
+| shipping cartridge today | 12 | 98,304 |
+| **free** | **116** | **950,272** |
+
+And two of the twelve in use are already empty at `T = 20` - the positional
+bank the embedding still absorbs, and the parity spare - so the honest figure
+is **118 banks that hold nothing**.
+
+Per-bank occupancy of the twelve, from the link map:
+
+| bank | contents | used | slack |
+| --- | --- | ---: | ---: |
+| 0-6 | weight stream (52,207 nnz + per-bank pad) | 7 x 8,192 | ~5,000 total |
+| 7 | embed 4,096 + pos 1,280 + softmax tables 841 + RAM kernels 639 | 6,856 | 1,336 |
+| 8 | positional table - **empty at T = 20** | 0 | 8,192 |
+| 9 | row headers 5,656 + lookup tables 2,063 | 8,143 | **241** |
+| 10 | spare, iNES 16 KB parity - **empty** | 0 | 8,192 |
+| 11 | code, chains, vectors | 6,536 | 1,656 |
+
+The header bank's 241 bytes of slack is the tightest thing in the image and it
+matters for what follows: an expert needs its own header table, and a header
+table plus a duplicate of the lookup tables is 8,143 bytes, which fits an 8 KB
+bank with 241 bytes to spare and nothing else.
+
+## 3. The routing design, and why it is a 64-byte table
+
+### The shape: experts are the feed-forward blocks, not whole models
+
+Two shapes were considered.
+
+**Whole-model experts** - N complete copies of the 102,400-weight network,
+one selected per token - is the cheapest possible cartridge change: a
+different base bank number and nothing else. It was rejected on arithmetic,
+not on cost. The KV cache is written at position `t` by whichever expert the
+token at `t` selected and read at position `t' > t` by a different one, so
+every expert's `Wq` has to dot against every other expert's `Wk`. The experts
+would have to spend their extra capacity re-agreeing on a shared key space
+before any of it could go into modelling. Recorded as a rejected alternative
+because it is the shape the "one expert streams per token" phrasing suggests
+first.
+
+**Feed-forward experts** - `Wq/Wk/Wv/Wo`, the embedding, the positional table
+and the head are shared; `W1` and `W2` of every layer come in N copies - keeps
+one key space and is the shape the MoE literature actually uses. Per-token
+weights streamed stay at 102,400. Parameters on the cartridge become
+53,248 shared + N x 49,152.
+
+### The router: it cannot see more than (token, position), so make it a table
+
+The router has to choose before the first layer runs, because the choice picks
+which bank the stream walk reads. At that moment the only thing in the machine
+is
+
+```
+x0 = clamp(emb[curtok] + pos[curpos], -7, 7)
+```
+
+**Every router that runs there is a function of `(curtok, curpos)` and nothing
+else.** A learned linear router is one; so is a hash; so is a lookup table
+indexed by the pair. The table is the *most general* of them - it can express
+any function of the pair, including whatever the learned projection would have
+converged to - and it is also the cheapest. That is not a trade-off, so there
+is nothing to trade.
+
+The cycle costs, all against the measured 604.5 cycles/row and
+8.31 cycles/weight of `out/FINAL_PROFILE.txt` (851,108 cycles of `gather_row`
+over 1,408 rows, 102,400 weights):
+
+| router | 6502 | cycles | % of a 1,116,979-cycle token |
+| --- | --- | ---: | ---: |
+| table on `curtok` | `ldx curtok` / `lda route,x` / `sta $5116` | **11 measured** | 0.0010% |
+| table on `(curtok, curpos)` | 16-bit index into a 64 x T table | ~20 | 0.0018% |
+| learned ternary projection, N = 4 | 4 rows x 64 inputs + argmax | ~2,130 | 0.19% |
+| learned ternary projection, N = 8 | 8 rows x 64 inputs + argmax | ~4,260 | 0.38% |
+
+The learned projection is affordable - 0.19% would not decide anything - and
+it is still the wrong choice, because it buys a strict subset of what the
+table can express for ~190x the cycles and a new bit-exactness surface (the
+argmax has to agree between trainer, host reference and ROM or the cartridge
+streams a different expert from the one that was trained).
+
+A router that saw *more* than `(curtok, curpos)` would have to run after some
+layers - route layer 2's feed-forward on layer 1's output. That is a real
+design and it is not free in the same way: the expert bank cannot be selected
+until mid-token, and the "one expert streams per token" shape becomes "one
+expert per layer". Not attempted here; recorded as the one routing idea this
+argument does not cover.
+
+### Which table
+
+Four constructions, identical cartridge cost, in `train/route.py`:
+
+| kind | rule | N = 4 load (max/min) |
+| --- | --- | ---: |
+| `mod` | `e = tok % N` | 1.35 |
+| `bal` | greedy frequency balance | 1.00 |
+| `clus` | balanced k-means on the rows of `P(next \| tok)` | 1.08 |
+| `rand` | seeded random | 3.09 |
+
+`rand` is in the list as the control: it answers whether balance or clustering
+is doing anything a coin could not. bpe64 token frequencies span 5,621 to
+597,458 occurrences, so `mod` is not a neutral choice - `tok % 2` alone sends
+55.2% of the corpus to one expert.
+
+## 4. The cartridge change, and what it costs the dense build
+
+The mixture needs the stream walk to leave the shared banks for an expert's
+banks and come back, three times a token. The shipping sentinel could not
+express that - `$FF` meant "increment the bank counter" - so it now carries
+the **absolute** bank number in its second byte, and each expert gets its own
+header table naming the banks it uses. The router is then one indexed load:
+
+```
+    ldx curtok                 ; 2
+    lda routebank,x            ; 4     header bank for this token's expert
+    sta MMC5_PRGC000           ; 4     map it
+```
+
+`routebank` lives in the fixed `$E000` bank, so it is readable whatever else
+is mapped, and it is generated from the same table the trainer stamped into
+the npz.
+
+Every expert's header bank also carries **its own copy of the lookup tables**,
+because the `$C000` window shows one bank and the tables are read while the
+headers are being walked. The copies are `.assert`-ed at assembly time to land
+at identical addresses; a table copy that moved would make a routed token read
+its multiply table out of thin air, and nothing at run time would say so.
+
+### The dense cartridge pays 84 cycles a token for the new sentinel
+
+One code path serves both builds, so the dense cartridge now emits explicit
+bank numbers `0,1,2,...` instead of increments and pays for it:
+
+| | cycles/token | tokens |
+| --- | ---: | --- |
+| dense, increment sentinel (shipping) | 1,116,979 | 19/19 EXACT |
+| dense, absolute sentinel | **1,117,063** | **19/19 EXACT** |
+
+**+84 cycles, +0.0075%.** Predicted +85 before measuring: `iny` + `lda (hptr),y`
++ `sta wbank` replaces `inc wbank` + `lda wbank`, which is +2 cycles on each of
+the six switches, and the packer now emits a leading sentinel for the first
+bank as well, which is one more 73-cycle switch. 12 + 73 = 85 against 84
+measured; the missing cycle is a branch that changed which side of a page it
+sits on, the effect this journal already records at 356 cycles for a five-byte
+edit.
+
+Paying 84 cycles to delete a special case was judged worth it. It is recorded
+as a cost, not a saving.
+
+## 5. The identical-experts control: the mixture costs 450 cycles a token
+
+Before any trained mixture existed, `train/replicate_experts.py` builds an
+npz whose N experts hold **the same weights** as the dense baseline, routed by
+`tok % 4` so the bank actually changes between consecutive tokens. Such a
+cartridge streams different banks, walks the extra region boundaries and does
+a router lookup per token, but must generate exactly what the dense cartridge
+generates.
+
+```
+tokens (host, 4 identical experts):
+  [1, 8, 6, 26, 5, 17, 8, 59, 3, 18, 27, 38, 36, 43, 18, 38, 14, 26, 51, 15]
+tokens (host, dense baseline):
+  [1, 8, 6, 26, 5, 17, 8, 59, 3, 18, 27, 38, 36, 43, 18, 38, 14, 26, 51, 15]
+ROM: TOKENS MATCHING: 19/19 -> EXACT
+image: 319,504 bytes, 38 banks, 31 of them stream
+```
+
+### Structural cost, measured per switch and counted per token
+
+BANKPROF on the mixture cartridge:
+
+```
+bank switches per token   13 13 13 13 ...      (dense: 7)
+bank-switch body          73 cycles, 247/247 samples identical
+bank switching is         949.0 cycles/token = 0.0850% of a token
+```
+
+73 cycles against the increment form's 71, exactly the +2 the extra
+`iny`/`lda (hptr),y`/`sta wbank` predicted.
+
+| | dense | mixture |
+| --- | ---: | ---: |
+| bank switches / token | 7 | 13 |
+| cost of switching, measured | 511.0 | 950.3 |
+| router, measured (19/19 samples at 11) | 0 | 11 |
+| **structural total** | **511** | **961** |
+
+**The mixture's structural overhead is 450 cycles a token, 0.040%.** Six extra
+region boundaries - into an expert's banks and back, once per layer - at 73
+cycles, plus an 11-cycle router.
+
+Both numbers are marker-bracketed in situ, not counted:
+
+```
+dense    bank-switch body   73 cycles, 133/133 samples identical
+mixture  bank-switch body   73 cycles x 241,  77 cycles x 6     (mean 73.10)
+mixture  router body        11 cycles, 19/19 samples identical
+```
+
+Two things this measurement corrected. **The router is 11 cycles, not the 10
+this journal first wrote**: `curtok` is in zero page, so `ldx curtok` is 3
+cycles and not the 2 an immediate load would have been. **And six of the
+mixture's 247 switches cost 77 rather than 73**, which is not noise and is
+fully accounted for: `hdr_advance` ends `bne @done`, and when the header
+pointer's low byte rolls over inside a switch the branch falls through to
+`inc hptr+1` instead - 2 + 5 against 3, i.e. +4. The header table is 5,684
+bytes, so it crosses ~22 pages a token; six of those crossings land inside a
+sentinel. The dense table crosses ~22 as well and none of its 133 landed
+there.
+
+### End to end the number is smaller than the noise from code placement
+
+| build | cycles/token | tokens |
+| --- | ---: | --- |
+| dense, increment sentinel | 1,116,979 | 19/19 EXACT |
+| dense, absolute sentinel | 1,117,063 | 19/19 EXACT |
+| 4 identical experts, absolute sentinel | **1,116,592** | **19/19 EXACT** |
+
+The mixture measures **471 cycles cheaper** than the dense build it is
+arithmetically identical to, where the switch count says it should be 450
+dearer. Both statements are true and neither is noise in the measurement: the
+cycle counts are exact integers from the write tap. What moved is where the
+code sits. Adding the router put eight bytes into the fixed bank ahead of
+~3,200 bytes of code, and a branch that changes which side of a page boundary
+it lands on costs a cycle every time it is taken - in a loop that runs tens of
+thousands of times a token. This journal already records 356 cycles from a
+five-byte edit with no arithmetic change.
+
+So the honest statement is: **the mixture's cost is 450 cycles a token by
+construction and by direct per-switch measurement, and that is below the
+~1,000-cycle floor that moving code around in this ROM produces anyway.**
+
+### The ceiling on expert count is 16, and it does not move the token cost
+
+The layout the packer computes, dry-run at several expert counts:
+
+| N | ternary weights on the cartridge | stream banks | cartridge banks | bank switches/token |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 102,400 | 7 | 12 | 7 |
+| 4 | 249,856 | 31 | 38 | 13 |
+| 8 | 446,464 | 55 | 66 | 13 |
+| **16** | **839,680** | **103** | **122** | **13** |
+| 17 | 937,984 | 109 | **129** | - refuses |
+
+N = 17 needs 129 banks and the packer refuses rather than emitting an image
+whose top bank cannot be addressed. So **16 experts, 839,680 ternary weights -
+8.2x the dense model - is what this cartridge holds**, and the number of bank
+switches a token does is 13 at every one of those counts. Capacity is bought
+with cartridge, not with cycles; that is the whole claim and it is now
+measured rather than asserted.
+
+Six of the 24 expert banks at N = 4 are part-empty, because every region chunk
+starts at a bank boundary - the ROM's stream offset is implicit and
+`chain_reset` puts it back to 0 on a switch, so a region can only be resumed
+at the start of a bank. That waste is recorded and was accepted: it costs
+banks, of which there are 116 spare, to avoid a sentinel that carries a
+resume offset.
+
+### The mixture profiles identically to the dense build
+
+`out/MOE_CONTROL_PROFILE.txt`, 4 identical experts, against
+`out/FINAL_PROFILE.txt`:
+
+| stage, pos 0 | dense | mixture control |
+| --- | ---: | ---: |
+| ternary `gather_row` | 851,108 | 851,285 |
+| attention | 24,287 | 24,119 |
+| everything else | 209,103 | 209,252 |
+| cycles per MAC | 16.30 | 16.31 |
+| cycles per WEIGHT | 8.31 | 8.31 |
+
+Same work, same rate. The mixture streams 52,207 index bytes a token out of
+127,396 on the cartridge, which is the sentence this whole design exists to
+make true.
+
+## 6. The loss: experts buy what context did not
+
+Recipe held fixed at the one the baseline used - bpe64, `tau 0.75`,
+`AV_SHIFT 2`, batch 192, `lr 3e-3`, `T = 20`. Only the expert count and the
+routing table move. `train/moe_table.py`.
+
+### Sizing sweep, 12,000 steps, seed 1
+
+| arm | N | route | val nats/token | **val nats/char** | weights on cart |
+| --- | ---: | --- | ---: | ---: | ---: |
+| dense | 1 | - | 2.2218 | **1.5283** | 102,400 |
+| mixture | 2 | bal | 2.1723 | **1.4943** | 151,552 |
+| mixture | 4 | bal | 2.0912 | **1.4385** | 249,856 |
+| mixture | 4 | clus | 2.0865 | **1.4353** | 249,856 |
+| mixture | 8 | bal | 2.0046 | **1.3789** | 446,464 |
+| **mixture** | **16** | **bal** | **1.9438** | **1.3371** | **839,680** |
+
+Monotone in N all the way to the cartridge ceiling, and the gaps are 4 to 6 times the 0.009 nats/char seed noise
+this project measured earlier. **The 8-expert mixture at 12,000 steps
+(1.3789) already beats the dense model at 60,000 steps (1.4133/1.4149)** -
+one fifth of the training, and 0.034 nats/char better than the number the
+context work could not move.
+
+For scale: quadrupling the context from 20 to 85 made the model **0.019
+nats/char worse**. Doubling the parameters on the cartridge, at identical
+per-token compute, makes it **0.034 nats/char better**, and going to eight
+experts makes it **0.149**.
+
+### The router's construction does not matter; its balance might
+
+`clus` - balanced k-means on the rows of `P(next | tok)`, so tokens that
+predict the same continuations share an expert - beats plain frequency
+balance by **0.0032 nats/char**. That is a third of the measured seed noise,
+which is to say it is nothing.
+
+That is a negative worth stating plainly: **trying to make the experts
+specialise semantically bought nothing over simply keeping them equally
+busy.** It is also the result that makes the cheap router defensible - if the
+elaborate table is no better than the trivial one, the argument that a learned
+projection would have been better than either is running out of room.
+
+## 7. The exactness gate, and the hole it would otherwise have
+
+Two mixture cartridges through the 64-seed survey (`train/survey_exact.sh`,
+19 generated tokens per seed, ROM against host reference token by token):
+
+| cartridge | image | banks | result |
+| --- | ---: | ---: | --- |
+| 4 identical experts (the control) | 319,504 B | 38 | **1,216 / 1,216 EXACT** |
+| 8 trained experts, 12k steps | 548,880 B | 66 | **1,216 / 1,216 EXACT** |
+
+`max\|dW\| = 0` over 249,856 and 446,464 ternary weights respectively, decoded
+back out of `stream.bin` by `train/verify_pack.py`, which follows the absolute
+bank numbers in the header tables and never calls the packer's own code.
+`routebank.bin` agrees with the trained routing table on 64/64 entries. The
+shared matrices decode **identically from every one of the 8 header tables** -
+without that check an expert reading the shared weights from the wrong bank
+would produce a model that is not the model that was trained.
+
+**The hole a survey can have here.** 1,216/1,216 proves nothing about expert 7
+if the survey never routes to expert 7 - its header table, its bank numbers
+and its copy of the lookup tables would all be untested and the gate would
+still be green. `train/expert_coverage.py` counts it:
+
+```
+64 seeds x 20 positions = 1,280 routed token-positions
+  expert 0     189   14.8%      expert 4     127    9.9%
+  expert 1     103    8.0%      expert 5     223   17.4%
+  expert 2     197   15.4%      expert 6     145   11.3%
+  expert 3     177   13.8%      expert 7     119    9.3%
+experts never routed: none
+distinct experts per seed: min 6  max 8  mean 7.27
+```
+
+Every expert is exercised between 103 and 223 times, and a single 19-token run
+touches six to eight of the eight. The gate is a real gate.
+
+The battery-backed result block still reads back on a mixture cartridge:
+`"ELYA"`, count 19, and every token id identical to the host reference at
+`$7FE8`. That block lives in the `$6000` PRG-RAM window on `$5113`, which the
+mixture never touches - it moves `$5114` and `$5116` only - so this was
+expected, and it was checked anyway because the last time a bank selection was
+assumed rather than named, the block ended up scattered across whichever bank
+happened to be mapped.
+
+## 8. The trainer's mixture IS the host reference, at every layer
+
+`train/test_equiv.py` now takes an expert count. The random-integer model it
+builds routes `tok % N`, and the token trajectory it checks is constructed so
+that **every** expert is exercised - a mixture that silently always routed to
+expert 0 would otherwise pass.
+
+```
+experts: 4   experts exercised by the test trajectory: [0, 1, 2, 3] of 4
+layer 0  x:  max|torch - ref| = 0   over 1280 values
+layer 1  x:  max|torch - ref| = 0   over 1280 values
+layer 2  x:  max|torch - ref| = 0   over 1280 values
+logits:      max|torch - ref| = 0   over 1280 values
+argmax token ids equal        : True
+FORWARD-PASS EQUIVALENCE: EXACT
+```
+
+`N = 1`, `N = 4` and `N = 8` all report EXACT. Without this the QAT trainer
+could be training a model the cartridge does not run, and every loss number
+below would be decorative.
+
+## 9. Fresh dense controls, because the published baseline is not quite the
+## same model any more
+
+The baseline to beat is `1.4133 / 1.4149 nats/char`. Those two numbers were
+measured on two different implementations of the same forward pass: `final_av2`
+(1.4133, seed 1) was trained before the chunked attention rewrite and
+`t20_final_s2` (1.4149, seed 2) after it. The rewrite is proven
+forward-equivalent by `train/test_equiv.py`, but it changes the order of float
+reductions, so it changes the optimisation TRAJECTORY - the same recipe run on
+the two implementations lands in different places.
+
+The mixture work adds one more such change: `W1`/`W2`/`head` are stacked with
+an expert axis and the feed-forward matmul now runs on a flattened
+`(B*T, D)` tensor rather than `(B, T, D)`. The forward value is bit-identical
+(proved above, at `nexp = 1`, against the pre-MoE module), the gradients are
+not bit-identical, and 60,000 steps of that compounds.
+
+So two dense controls were run on **this** tree, same recipe, two seeds:
+
+| arm | code | seed | val nats/token | **val nats/char** |
+| --- | --- | ---: | ---: | ---: |
+| `final_av2` | pre-chunk | 1 | 2.0546 | 1.4133 |
+| `t20_final_s2` | post-chunk | 2 | 2.0568 | 1.4149 |
+| **`moe_dense60k_s1`** | **this tree** | **1** | **2.0381** | **1.4020** |
+| **`moe_dense60k_s2`** | **this tree** | **2** | **2.0491** | **1.4096** |
+
+This tree's dense model is **0.008 nats/char better on average** than the
+published pair, which is about the seed noise, and its own two seeds differ by
+0.0076. There is no claim here that anything improved - the point is that the
+mixture has to be compared against **1.4020**, the strongest dense number this
+tree produces, and not only against the 1.4133 in the README.
+
+## 10. The routing table's construction does not matter. At all.
+
+Three routers at N = 4, 12,000 steps, seed 1, identical in every other
+respect and identical in cartridge cost (11 cycles):
+
+| route | what it is | load max/min | **val nats/char** |
+| --- | --- | ---: | ---: |
+| `clus` | balanced k-means on `P(next \| tok)` | 1.08 | **1.4353** |
+| `rand` | a seeded random assignment | **3.09** | **1.4374** |
+| `bal` | greedy frequency balance | 1.00 | **1.4385** |
+
+And at N = 8, where an unbalanced router sends 2.08x as much corpus to its
+busiest expert as to its lightest:
+
+| route | load max/min | **val nats/char** |
+| --- | ---: | ---: |
+| `bal` | 1.03 | **1.3789** |
+| `mod` | 2.08 | **1.3823** |
+
+**The spread is 0.0032 nats/char across the three N = 4 routers and 0.0034
+between the two N = 8 routers, against a measured seed noise of 0.009.** Deliberately clustering tokens by what they predict is worth
+nothing over load balancing, and a *random* assignment that sends 27% of the
+corpus to one expert and 11% to another is worth nothing either - if anything
+it edges the balanced one, which at this spread means nothing.
+
+That is the strongest single argument for the design in section 3. The whole
+routing question - hash it, balance it, cluster it, learn it - turns out to
+sit inside the noise, so paying 2,130 cycles for a learned projection would be
+buying a decision that does not exist. **What the mixture buys is capacity and
+conditional computation, not clever assignment.**
+
+Stated as a negative, plainly: **the clustering router, which was the only
+construction here that tried to make experts specialise semantically, failed
+to beat a coin.**
+
+## 11. A trained 8-expert cartridge: cycles and exactness
+
+Built from a **47,500-step checkpoint** of the seed-1 mixture and gated end to
+end by `train/moe_gate.sh`. It is a checkpoint because the first attempt at
+the two 60,000-step runs wedged: after ~47,500 and ~49,000 steps both
+processes stopped making progress while still burning 100% CPU, for
+seventeen hours, on a GPU that a direct test showed was perfectly healthy
+(50 x 2048-square matmuls in 0.61 s). The trainer writes an exportable npz at
+every eval precisely for this, so the checkpoints were kept and the runs
+restarted from scratch; the restart reproduced the wedged run's loss at the
+same step to six digits (1.9792 at step 21,500, both times) and finished in
+38 minutes. The final cartridge is in section 13; this section is kept because
+its numbers were measured and because the wedge is worth recording.
+
+```
+weights on the cartridge        446,464 ternary        (dense: 102,400)
+index bytes STREAMED per token   52,976                (dense:  52,207)
+                                 per expert: 52,874 .. 53,106
+stream banks                     54        cartridge banks 62
+bank switches per token          12        (dense: 7)
+max|dW| decoded back out of the stream   0  over 446,464 weights
+routebank.bin vs the trained route       64 / 64
+ROM vs host, seed token 1                19 / 19 EXACT
+64-seed survey                           1,216 / 1,216 EXACT
+experts never routed                     none
+cycles/token                     1,125,984
+```
+
+### 1,125,984 against 1,116,979: +9,005 cycles, +0.81%
+
+And essentially none of it is the mixture. The stage profile says where it
+went:
+
+| stage, pos 0 | dense | 8-expert mixture |
+| --- | ---: | ---: |
+| ternary `gather_row` | 851,108 | **861,313** |
+| attention | 24,287 | 24,129 |
+| everything else | 209,103 | 209,123 |
+
+`gather_row` is up **10,205 cycles**, and it is up because the trained mixture
+is **1.5% denser**: 52,976 nonzero weights streamed per token against 52,207,
+i.e. 769 more index bytes at ~13.3 cycles each once the gather chain's
+16-entry block granularity is counted. "Everything else" - which is where the
+router and the header walk live - moved by **20 cycles**.
+
+Density is a property of what training chose, not of the mixture: `tau` is
+0.75 in both arms and the mixture simply settled 0.011 higher in density. The
+mixture machinery itself was measured separately and exactly, on the
+identical-experts control where the arithmetic cannot differ: **450 cycles a
+token, 0.040%.**
+
+So the honest summary of cost is:
+
+| | cycles/token | vs baseline |
+| --- | ---: | ---: |
+| dense, shipped (increment sentinel) | 1,116,979 | - |
+| dense, absolute sentinel | 1,117,063 | +0.008% |
+| mixture machinery, at identical weights | +450 | +0.040% |
+| trained 8-expert mixture, end to end | **1,125,984** | **+0.81%** |
+| of which: the trained model being 1.5% denser | ~+8,600 | +0.77% |
+
+**0.6293 seconds per token against 0.6241.** Four and a third times the
+parameters for five milliseconds.
+
+---
+
+# The result
+
+## 12. Two seeds at 60,000 steps: 1.2202 / 1.2221 against 1.4133 / 1.4149
+
+Same recipe as the baseline in every respect - bpe64, `tau 0.75`,
+`AV_SHIFT 2`, `T = 20`, batch 192, `lr 3e-3`, 60,000 steps - with eight
+feed-forward experts and a 64-byte routing table.
+
+| arm | N | seed | val nats/token | **val nats/char** |
+| --- | ---: | ---: | ---: | ---: |
+| published baseline `final_av2` | 1 | 1 | 2.0546 | 1.4133 |
+| published baseline `t20_final_s2` | 1 | 2 | 2.0568 | 1.4149 |
+| dense control, this tree | 1 | 1 | 2.0381 | 1.4020 |
+| dense control, this tree | 1 | 2 | 2.0491 | 1.4096 |
+| **mixture** | **8** | **1** | **1.7738** | **1.2202** |
+| **mixture** | **8** | **2** | **1.7766** | **1.2221** |
+
+**The two groups do not overlap and are not close to overlapping.** The worst
+mixture seed (1.2221) beats the best dense seed on this tree (1.4020) by
+**0.180 nats/char**, which is **20 times** the 0.009 seed noise this project
+measured. Against the published pair the gap is 0.193.
+
+Re-evaluated on a single common estimator - 60 held-out batches from one fresh
+eval generator, applied identically to all four arms, because the trainer's
+own final eval draws from a generator that mid-run evals have advanced by a
+different amount in each run:
+
+| arm | **val nats/char, common estimator** |
+| --- | ---: |
+| dense s1 / s2 | 1.4098 / 1.4182 |
+| **mixture s1 / s2** | **1.2267 / 1.2311** |
+
+Same conclusion, same size: **-0.183**.
+
+For the comparison this journal exists to make:
+
+| change | cost per token | effect on val nats/char |
+| --- | ---: | ---: |
+| context 20 -> 85 | +52.0% cycles | **+0.019 WORSE** |
+| dense -> 8 experts | **+0.55% cycles** | **-0.182 BETTER** |
+
+Quadrupling the context made it worse for half again the time. Quadrupling the
+parameters made it 13% better for half a percent of the time. **Capacity was
+the ceiling, not context**, and that is now measured on both sides of the
+claim.
+
+## 13. The shipping mixture cartridge
+
+`train/moe_gate.sh runs/moe_n8bal60k_s1.npz`, all five stages:
+
+```
+image                            548,880 bytes, 66 banks   (dense: 106,512, 12)
+ternary weights on the cartridge 446,464                   (dense: 102,400)
+index bytes streamed per token    52,707                   (dense:  52,207)
+bank switches per token           12                       (dense:       7)
+
+max|dW| decoded back out of stream.bin      0  over 446,464 weights
+routebank.bin vs the trained routing table  64 / 64
+shared matrices decode identically from all 8 header tables
+ROM vs host reference, seed token 1         19 / 19 EXACT
+64-seed survey                              1,216 / 1,216 EXACT
+experts routed inside the survey            all 8, between 92 and 279 times
+
+cycles/token   1,092,685 (pos 0) .. 1,153,057 (pos 18), mean 1,123,138
+               0.6275 s/token at 1,789,772 Hz
+```
+
+**1,123,138 against 1,116,979: +6,159 cycles, +0.55%.** Of which the mixture
+machinery is 450 (measured on the identical-experts control) and the rest is
+the trained model settling 1.0% denser - 52,707 index bytes a token against
+52,207. The stage profile agrees: `gather_row` is up 7,630 cycles and
+"everything else", where the router and the header walk live, moved by 26.
+
+**4.36x the parameters, 1.0055x the time, 0.87x the loss.**
+
+## 14. Regressions: nothing the mixture touched broke anything it did not
+
+The absolute-bank sentinel is on **one** code path, so the dense cartridge and
+the long-context build run it too. Both were re-gated on this tree.
+
+| gate | result |
+| --- | ---: |
+| dense trained cartridge, 64-seed survey | **1,216 / 1,216 EXACT** |
+| dense trained cartridge, cycles/token | 1,117,063 (was 1,116,979, +84) |
+| random-init `./build.sh` cartridge | **19 / 19 EXACT** |
+| `T = 85` legacy attention path, random-init, 84 tokens | **84 / 84 EXACT** |
+| all eleven build targets at `T <= 21` | link |
+| all seven build targets at `T = 85` | link |
+| 4 identical experts vs dense, same tokens | identical, 19/19 |
+| trainer == host reference at N = 1, 4, 8 | EXACT at every layer |
+
+The `T = 85` run is the random-init model, so its cycle count is not
+comparable with the 1,697,916 recorded for the trained long-context
+cartridge - different weights, different nonzero count. What it establishes is
+that the legacy attention path still walks an absolute-sentinel header table
+correctly, which is the only thing the mixture change could have broken there.
+
+## 15. The ceiling cartridge: 16 experts, 1 MB, 839,680 ternary weights
+
+The bank-budget probe said 127 of 128 banks answer. The layout said 16 experts
+need 122 of them. So it was built and gated - one seed, 60,000 steps, same
+recipe.
+
+```
+image                            1,007,632 bytes, 122 banks
+ternary weights on the cartridge   839,680        (8.2x the dense model)
+index bytes streamed per token      52,958        (dense: 52,207, +1.4%)
+                                    per expert: 52,788 .. 53,124
+bank switches per token                 12        (dense: 7)
+
+max|dW| decoded back out of stream.bin    0  over 839,680 weights
+routebank.bin vs the trained route        64 / 64
+ROM vs host reference, seed token 1       19 / 19 EXACT
+64-seed survey                            1,216 / 1,216 EXACT
+experts routed inside the survey          all 16, none missed
+
+cycles/token                       1,125,463    (+0.76% over 1,116,979)
+val                                1.6966 nats/token = 1.1671 nats/char
+```
+
+**A one-megabyte NES cartridge running an 8.2x model for 0.76% more time.**
+One seed, so this is a data point and not a two-seed claim like the N = 8
+result; it is reported as one.
+
+### The whole curve, at 60,000 steps
+
+| N | weights on cart | banks | image | **val nats/char** | cycles/token |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 102,400 | 12 | 106,512 B | 1.4020 / 1.4096 | 1,116,979 |
+| 8 | 446,464 | 66 | 548,880 B | **1.2202 / 1.2221** | 1,123,138 |
+| 16 | 839,680 | 122 | 1,007,632 B | **1.1671** (1 seed) | 1,125,463 |
+
+Loss falls by 17% from N = 1 to N = 16. Cycles rise by 0.76%. Every row is
+1,216/1,216 exact against the host reference.
+
+## 16. The per-expert output head path, exercised
+
+`nexp_head > 1` moves the output head out of the shared region and into each
+expert's banks. It was implemented alongside the feed-forward experts and
+would otherwise have shipped untested, so it was exercised with **eight
+identical copies of the trained head**, which must be arithmetically neutral:
+
+```
+stream banks                61   (shared head: 54)
+weights on the cartridge    475,136
+bank switches per token     12   (unchanged - the head chunk moved region,
+                                  it did not add a boundary)
+max|dW|                     0    over 475,136 weights
+ROM vs host, seed token 1   19 / 19 EXACT
+cycles/token                1,123,138   - the same integer as the shared-head
+                                          build, at every position
+tokens                      identical to the shared-head cartridge
+```
+
+Not trained as an arm - the head is 4,096 of 102,400 weights and the
+feed-forward blocks are 49,152, so it was never where the capacity was. The
+path is exercised, not evaluated.
+
+---
+
+# What could not be done
+
+* **No second emulator.** `ares` is still not installed here, so every
+  mixture measurement is MAME-only, as the two journals before this one were.
+  The `.sav` result block was verified through MAME's memory dump.
+* **N = 16 is one seed.** The 8-expert result is two seeds and the groups do
+  not overlap; the 16-expert result is a single 60,000-step run and is
+  reported as a data point, not as a two-seed claim.
+* **No learned router was trained.** It was argued out - any router running
+  before the first layer is a function of `(curtok, curpos)`, which the table
+  can express exactly, and the three tables that were trained land within
+  0.0032 nats/char of each other - but "argued out" is not "measured", and a
+  learned projection with an argmax remains untested here.
+* **No `(curtok, curpos)` router was trained either**, for the same reason.
+* **No mid-token router.** Routing layer 2's feed-forward on layer 1's output
+  is the one routing idea the "function of `(curtok, curpos)`" argument does
+  not cover, and it is not attempted.
+* **The bank-aligned chunk layout was not optimised.** Every region chunk
+  starts at a bank boundary, so part of a bank is wasted per chunk - six of
+  the 24 expert banks at N = 4. The alternative is a sentinel carrying a
+  resume offset; it was not built, because there are 116 spare banks and one
+  fewer thing in the sentinel is worth more than six banks.
+* **The first pair of 60,000-step runs wedged** at ~47,500 and ~49,000 steps
+  and burned 100% CPU for seventeen hours without advancing, on a GPU that
+  tested healthy. They were killed and restarted; the restart reproduced the
+  loss at matched steps to six digits. No cause was established. Training wall
+  times in this journal are not comparable with each other for that reason -
+  the box shared its GPU with other work throughout.
+* **The published baselines are not from this tree.** 1.4133 and 1.4149 were
+  produced by two different implementations of the same forward pass, and this
+  tree's dense model measures 1.4020 / 1.4096 on the same recipe. Both
+  comparisons are given; the mixture beats both by more than twenty times the
+  seed noise, so nothing turns on which is used.
