@@ -107,8 +107,6 @@
     .incbin "out/model/stream.bin", $68000, $2000
 .segment "STREAM53"
     .incbin "out/model/stream.bin", $6A000, $2000
-.segment "STREAM54"
-    .incbin "out/model/stream.bin", $6C000, $2000
 .segment "HEADERS0"
     .incbin "out/model/headers_e0.bin"
 .segment "TABLES0"

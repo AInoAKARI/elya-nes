@@ -2966,3 +2966,57 @@ conditional computation, not clever assignment.**
 Stated as a negative, plainly: **the clustering router, which was the only
 construction here that tried to make experts specialise semantically, failed
 to beat a coin.**
+
+## 11. The trained 8-expert cartridge: cycles and exactness
+
+Built from the seed-1 mixture, gated end to end by `train/moe_gate.sh`.
+
+```
+weights on the cartridge        446,464 ternary        (dense: 102,400)
+index bytes STREAMED per token   52,976                (dense:  52,207)
+                                 per expert: 52,874 .. 53,106
+stream banks                     54        cartridge banks 62
+bank switches per token          12        (dense: 7)
+max|dW| decoded back out of the stream   0  over 446,464 weights
+routebank.bin vs the trained route       64 / 64
+ROM vs host, seed token 1                19 / 19 EXACT
+64-seed survey                           1,216 / 1,216 EXACT
+experts never routed                     none
+cycles/token                     1,125,984
+```
+
+### 1,125,984 against 1,116,979: +9,005 cycles, +0.81%
+
+And essentially none of it is the mixture. The stage profile says where it
+went:
+
+| stage, pos 0 | dense | 8-expert mixture |
+| --- | ---: | ---: |
+| ternary `gather_row` | 851,108 | **861,313** |
+| attention | 24,287 | 24,129 |
+| everything else | 209,103 | 209,123 |
+
+`gather_row` is up **10,205 cycles**, and it is up because the trained mixture
+is **1.5% denser**: 52,976 nonzero weights streamed per token against 52,207,
+i.e. 769 more index bytes at ~13.3 cycles each once the gather chain's
+16-entry block granularity is counted. "Everything else" - which is where the
+router and the header walk live - moved by **20 cycles**.
+
+Density is a property of what training chose, not of the mixture: `tau` is
+0.75 in both arms and the mixture simply settled 0.011 higher in density. The
+mixture machinery itself was measured separately and exactly, on the
+identical-experts control where the arithmetic cannot differ: **450 cycles a
+token, 0.040%.**
+
+So the honest summary of cost is:
+
+| | cycles/token | vs baseline |
+| --- | ---: | ---: |
+| dense, shipped (increment sentinel) | 1,116,979 | - |
+| dense, absolute sentinel | 1,117,063 | +0.008% |
+| mixture machinery, at identical weights | +450 | +0.040% |
+| trained 8-expert mixture, end to end | **1,125,984** | **+0.81%** |
+| of which: the trained model being 1.5% denser | ~+8,600 | +0.77% |
+
+**0.6293 seconds per token against 0.6241.** Four and a third times the
+parameters for five milliseconds.

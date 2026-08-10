@@ -1,0 +1,11 @@
+runs/moe_n8bal_ck_s1.npz: 64 seeds x 20 positions = 1280 routed token-positions
+  expert 0     161   12.6%
+  expert 1     186   14.5%
+  expert 2     164   12.8%
+  expert 3     214   16.7%
+  expert 4     150   11.7%
+  expert 5     199   15.5%
+  expert 6      75    5.9%
+  expert 7     131   10.2%
+experts never routed: none
+distinct experts per seed: min 6  max 8  mean 7.34
