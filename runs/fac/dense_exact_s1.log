@@ -16,3 +16,13 @@ dense_exact_s1               step  7000  fit 2.3270  val 2.3327  density 0.5363 
 dense_exact_s1               step  7500  fit 2.3128  val 2.3188  density 0.5355  111s
 dense_exact_s1               step  8000  fit 2.3073  val 2.3152  density 0.5350  119s
 dense_exact_s1               step  8500  fit 2.3116  val 2.3062  density 0.5343  126s
+dense_exact_s1               step  9000  fit 2.2700  val 2.2673  density 0.5339  133s
+dense_exact_s1               step  9500  fit 2.3142  val 2.3188  density 0.5327  141s
+dense_exact_s1               step 10000  fit 2.2909  val 2.2943  density 0.5322  148s
+dense_exact_s1               step 10500  fit 2.2978  val 2.2815  density 0.5309  155s
+dense_exact_s1               step 11000  fit 2.2956  val 2.2937  density 0.5312  163s
+dense_exact_s1               step 11500  fit 2.2785  val 2.2719  density 0.5313  170s
+dense_exact_s1               step 12000  fit 2.2938  val 2.3040  density 0.5300  177s
+dense_exact_s1               step 12500  fit 2.2649  val 2.2738  density 0.5288  185s
+dense_exact_s1               step 13000  fit 2.2697  val 2.2905  density 0.5292  192s
+dense_exact_s1               step 13500  fit 2.2773  val 2.2693  density 0.5290  200s
