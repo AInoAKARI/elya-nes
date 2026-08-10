@@ -8,3 +8,11 @@ n8_exact_s1                  step  2500  fit 2.3052  val 2.3119  density 0.5482 
 n8_exact_s1                  step  3000  fit 2.2468  val 2.2633  density 0.5478  142s
 n8_exact_s1                  step  3500  fit 2.2100  val 2.2243  density 0.5475  166s
 n8_exact_s1                  step  4000  fit 2.1655  val 2.1636  density 0.5471  189s
+n8_exact_s1                  step  4500  fit 2.1676  val 2.1682  density 0.5464  213s
+n8_exact_s1                  step  5000  fit 2.1526  val 2.1441  density 0.5458  237s
+n8_exact_s1                  step  5500  fit 2.1163  val 2.1248  density 0.5455  260s
+n8_exact_s1                  step  6000  fit 2.0998  val 2.0938  density 0.5443  284s
+n8_exact_s1                  step  6500  fit 2.0710  val 2.0840  density 0.5444  307s
+n8_exact_s1                  step  7000  fit 2.0869  val 2.0885  density 0.5438  331s
+n8_exact_s1                  step  7500  fit 2.0634  val 2.0851  density 0.5432  355s
+n8_exact_s1                  step  8000  fit 2.0531  val 2.0525  density 0.5429  379s

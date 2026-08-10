@@ -5,3 +5,8 @@ n8_pow2_s1                   step  1000  fit 2.7448  val 2.7425  density 0.5499 
 n8_pow2_s1                   step  1500  fit 2.5330  val 2.5211  density 0.5494  110s
 n8_pow2_s1                   step  2000  fit 2.4162  val 2.4245  density 0.5489  146s
 n8_pow2_s1                   step  2500  fit 2.3489  val 2.3489  density 0.5479  182s
+n8_pow2_s1                   step  3000  fit 2.2877  val 2.3021  density 0.5474  217s
+n8_pow2_s1                   step  3500  fit 2.2597  val 2.2782  density 0.5469  253s
+n8_pow2_s1                   step  4000  fit 2.2382  val 2.2293  density 0.5460  289s
+n8_pow2_s1                   step  4500  fit 2.2024  val 2.2058  density 0.5454  325s
+n8_pow2_s1                   step  5000  fit 2.2067  val 2.2039  density 0.5447  361s

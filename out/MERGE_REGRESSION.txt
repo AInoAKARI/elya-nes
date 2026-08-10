@@ -34,3 +34,12 @@ A dense build pays for that in two ways, both of which the merged tree inherits:
 
 Not a merge error; a merge COST, and it is the price of one header format
 instead of two.
+
+The mixture branch had already measured this on ITS dense arm, under the
+power-of-two normaliser: 1,116,979 -> 1,117,063, +84 cycles, 19/19 EXACT
+(FINDINGS, "dense, absolute sentinel").  The same +84 falls out here on the
+exact-normalisation arm, which is what it should do - the sentinel change is
+in the header walk and the normaliser is in softmax, so the two do not touch.
+That is the first, cheapest piece of evidence that these two changes are
+independent; it is not evidence about the LOSS, which is a separate question
+and is measured separately.
