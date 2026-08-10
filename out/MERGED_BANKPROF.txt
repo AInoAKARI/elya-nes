@@ -1,0 +1,19 @@
+rom: out/nnbank.nes
+status: OK
+
+tokens measured           19
+bank switches per token   13 13 13 13 13 13 13 13
+
+bank-switch body, marker 50 -> 51, 247 samples
+  raw interval        min 85  max 89  mean 85.06
+  minus one BMARK     min 73  max 77  mean 73.06 cycles
+  histogram           73:243  77:4
+
+router body, marker 60 -> 61, 19 samples
+  minus one BMARK     min 11  max 11  mean 11.00 cycles
+
+token cost with the markers in   1133987 cycles/token
+markers add                      312.0 cycles/token (2 x 12 x 13.00 switches)
+token cost without them          1133675 cycles/token
+
+bank switching is               949.8 cycles/token = 0.0838% of a token
