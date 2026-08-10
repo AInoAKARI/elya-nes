@@ -3149,3 +3149,74 @@ the model leans on slightly fewer positions to produce it.
 
 The sparsity the AV chain lives on is intact: 84.8% of its potential
 multiply-adds are still absent rather than executed.
+
+## Final gates, shipping configuration
+
+`SM_EXACTNORM = 1`, `AV_SHIFT = 3`, `SM_TARGET = 8`, `SM_SHIFT = 3`,
+`runs/smxfinal_av3_exact_s1.npz`:
+
+| gate | result |
+| --- | ---: |
+| **`train/survey_exact.sh`, 64 seed tokens** | **1,216 / 1,216 EXACT** |
+| `max\|dW\|` over 102,400 ternary weights | **0** |
+| embedding / positional tables | **max\|d\| = 0** |
+| block 16, 87,552 blocks | **max 209** vs the provable 224, **0** over 255 |
+| block 32, same weights | 5,022 of 57,000 over 255 - still refuted |
+| `T = 85`, legacy attention path | **84 / 84 EXACT**, 1,688,180 cycles/token |
+| `train/test_equiv.py` | **EXACT** |
+| stream | 52,764 nnz, 7 banks - fits |
+
+Text, greedy, host-only prompting:
+
+```
+'once upon a time'  ->  'once upon a time, there was a b'
+'the little girl'   ->  'the little girl named lily'
+seed ' the '        ->  ' the park in the story. she saw a '
+```
+
+## What could not be done, and what is thinner than it looks
+
+* **`SM_TARGET = 32` was never built into a ROM.** It is implemented in the
+  trainer and the host reference and measured in the screen (1.5267, which is
+  the baseline within noise), and the packer refuses to emit it. The reason
+  given in DESIGN - "the row address no longer fits one patched byte" - was
+  then corrected to "it costs two patched bytes per LIVE POSITION, about 250
+  cycles a token". So it is buildable and was not built, because the screen
+  says the budget is not what matters. If the budget ever *did* start to
+  matter, that correction is the starting point.
+* **The exact normaliser is exact, but the exp table is still 15 buckets.**
+  `p = min(e*8/S, 7)` is computed exactly from `e` and `S`, but `e` itself is
+  one of 15 tabulated values of a bucketed score difference. Halving
+  `SM_SHIFT` to refine those buckets was screened (arm e) and measured worse
+  with the widest seed spread in the table - but it was screened *under the
+  old normaliser*, and the two knobs might interact the way `AV_SHIFT` did.
+  That combination was not run.
+* **`K_SHIFT = 2` still has not been laddered.** It was flagged as saturating
+  31.67% of the time two journals ago and it is still flagged. `AV_SHIFT`
+  moving from 2 to 3 the moment its input distribution changed is a direct
+  argument that `K_SHIFT` deserves the same treatment, and it did not get it
+  here.
+* **The context re-test is 12,000 steps, not 60,000.** Four `T = 85` runs at
+  60,000 steps is about six hours of this box's GPU and it is shared. The
+  12,000-step ladder reproduces both of the context journal's own numbers to
+  within 0.0024, which is what makes it usable as a comparison, but the
+  headline `T = 20` result is at 60,000 and the context answer is not.
+* **No `T = 85` model was trained with `AV_SHIFT = 3`.** The context ladder
+  ran at `AV_SHIFT = 2` in all four cells, which keeps it internally matched -
+  the gap comparison is valid - but it means the long-context arm was not
+  given the *full* shipping configuration. If `AV_SHIFT = 3` interacted with
+  context the way it interacted with the normaliser, this would not see it.
+* **One corpus, one vocabulary, one model shape**, exactly as before:
+  TinyStories, bpe64, `3 x 64`.
+* **No second emulator.** `ares` is still not installed here; every ROM
+  number is MAME.
+* **The +1.10% cycle figure compares two different trained models.** The
+  kernel's own share is +4,223 cycles at position 18 and the rest is 557 extra
+  nonzero weights this model happened to train to. Both numbers are given
+  above; neither is hidden behind the other.
+* **The `sum <= 8` ceiling is untouched.** At most 8 positions can carry
+  weight and that is still true of the shipping kernel. What changed is that
+  the kernel now hands out the whole 8 instead of somewhere between 4 and 8.
+  If a future model *did* need to spread over 20 positions, none of this work
+  helps and the budget family in DESIGN section 6 is where to start - with the
+  measurement that it currently buys nothing.
