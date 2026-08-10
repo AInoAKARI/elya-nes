@@ -1,0 +1,71 @@
+
+### train/eval_npz.py, 60 batches, generator reset
+
+| capacity | normaliser | seed 1 | seed 2 | **mean nats/char** |
+|---|---|---:|---:|---:|
+| dense | pow2 | 1.4098 | 1.4182 | **1.4140** |
+| dense | exact | 1.3838 | 1.3868 | **1.3853** |
+| 8 experts | pow2 | 1.2267 | 1.2311 | **1.2289** |
+| 8 experts | exact | 1.1976 | 1.1949 | **1.1963** |
+
+--- train/eval_npz.py, 60 batches, generator reset ---
+seed spread within a cell (max |seed 1 - seed 2|): 0.0084
+
+main effect A, the exact normaliser + AV_SHIFT 3
+    at dense capacity     -0.0287   (1.4140 -> 1.3853)
+    at 8 experts          -0.0326   (1.2289 -> 1.1963)
+
+main effect B, 8 experts
+    under pow2            -0.1851   (1.4140 -> 1.2289)
+    under exact           -0.1890   (1.3853 -> 1.1963)
+
+if they simply ADDED, the merged cell would be
+    1.4140 -0.0287 -0.1851 = 1.2002
+measured merged cell      1.1963
+INTERACTION               -0.0039   (positive = the second win is worth LESS
+                                   once the first has been taken)
+                          -13.8% of effect A, -2.1% of effect B
+                          INSIDE the seed spread
+
+
+### the trainer's own final 60-batch eval
+
+| capacity | normaliser | seed 1 | seed 2 | **mean nats/char** |
+|---|---|---:|---:|---:|
+| dense | pow2 | 1.4020 | 1.4096 | **1.4058** |
+| dense | exact | 1.3754 | 1.3779 | **1.3766** |
+| 8 experts | pow2 | 1.2202 | 1.2221 | **1.2211** |
+| 8 experts | exact | 1.1932 | 1.1898 | **1.1915** |
+
+--- the trainer's own final 60-batch eval ---
+seed spread within a cell (max |seed 1 - seed 2|): 0.0076
+
+main effect A, the exact normaliser + AV_SHIFT 3
+    at dense capacity     -0.0292   (1.4058 -> 1.3766)
+    at 8 experts          -0.0296   (1.2211 -> 1.1915)
+
+main effect B, 8 experts
+    under pow2            -0.1847   (1.4058 -> 1.2211)
+    under exact           -0.1851   (1.3766 -> 1.1915)
+
+if they simply ADDED, the merged cell would be
+    1.4058 -0.0292 -0.1847 = 1.1920
+measured merged cell      1.1915
+INTERACTION               -0.0005   (positive = the second win is worth LESS
+                                   once the first has been taken)
+                          -1.7% of effect A, -0.3% of effect B
+                          INSIDE the seed spread
+
+uniform ln(64) = 4.1589 nats/token = 2.8608 nats/char
+
+Published elsewhere, on OTHER trees:
+  dense + pow2      1.4133 / 1.4149 = 1.4141   (runs/final_av2_bpe64_tau0.75,
+                                                runs/t20_final_s2 - an older
+                                                implementation; these predate
+                                                the `_ctx` stamp)
+  dense + exact     1.3754 / 1.3779 = 1.3766   (reproduced here EXACTLY by
+                                                dense_exact under the trainer's
+                                                own estimator)
+  8 experts + pow2  1.2202 / 1.2221 = 1.2212   (reproduced here EXACTLY by
+                                                n8_pow2, to every digit the
+                                                json holds)
