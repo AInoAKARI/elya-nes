@@ -73,9 +73,18 @@ and made it 0.182 nats/char **better**.
 The routing table's construction turned out not to matter - balanced,
 bigram-clustered and outright random assignments land within 0.0032 nats/char
 of each other - so the router is one `lda routebank,x`, measured at **11
-cycles**.  The cartridge ceiling is **16 experts / 839,680 ternary weights**,
-at which point the layout needs 122 of the MMC5's 128 banks and the bank
-switches per token are still 12.
+cycles**.
+
+And the ceiling was built.  `rom/bankprobe.s` maps a 1 MB image and confirms
+**127/127** switchable MMC5 banks answer, which is room for **16 experts**:
+
+| N | weights on cart | image | **val nats/char** | cycles/token | ROM vs host |
+|---:|---:|---:|---:|---:|---|
+| 1 | 102,400 | 106,512 B | 1.4020 / 1.4096 | 1,116,979 | 1,216/1,216 |
+| 8 | 446,464 | 548,880 B | **1.2202 / 1.2221** | 1,123,138 | 1,216/1,216 |
+| 16 | 839,680 | **1,007,632 B** | **1.1671** (1 seed) | 1,125,463 | 1,216/1,216 |
+
+**A one-megabyte NES cartridge running an 8.2x model for 0.76% more time.**
 
 ## Quick start
 
