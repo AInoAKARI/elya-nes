@@ -1,0 +1,24 @@
+rows                         1408
+nnz                          233299
+nnz_per_token                [53610, 53389, 53361, 53348, 53281, 53371, 53277, 53324]
+weights_per_token            102400
+weights_on_cart              446464
+nexp                         8
+stream_banks                 55
+header_bytes                 5684
+banks                        55
+bank_crossings_per_token     13
+tokens                       [1, 8, 6, 26, 1, 8, 17, 35, 0, 44, 18, 0, 8, 3, 58, 29, 8, 26, 2, 0]
+ntok                         19
+weights_npz                  runs/fac/n8_exact_s2.npz
+seed_tok                     1
+
+embed.bin  max|d| = 0   over 4096 values
+pos.bin    max|d| = 0   over 1280 values
+weights    446464   nonzero 233299   density 0.5225
+routebank.bin agrees with the trained route: 64/64 entries
+
+max|dW| = 0   over 446464 ternary weights -> EXACT
+
+-rw-rw-r-- 1 scott scott 548880 Aug 10 10:18 out/nn.nes
+-rw-rw-r-- 1 scott scott 548880 Aug 10 10:18 out/nnprof.nes

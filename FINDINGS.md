@@ -4245,6 +4245,21 @@ dense + power-of-two and buys **-0.214 nats/char**.
 | router, in situ | **11 cycles**, 19 of 19 samples, no spread |
 | bank switch, in situ | 73 cycles, 243 of 247 samples; 13 switches/token = 949.8 cycles = 0.0838% |
 
+The seed-2 cartridge was put through the same gate, because "1,216/1,216" is a
+claim about a cartridge and each cartridge has to carry its own:
+
+| gate | seed 1 | seed 2 |
+| --- | --- | --- |
+| build variants link | 24 / 24 | **24 / 24** |
+| `max\|dW\|` | 0 over 446,464 | **0 over 446,464** |
+| ROM vs host, seed token 1 | 19/19 EXACT | **19/19 EXACT** |
+| 64-seed survey | 1,216 / 1,216 | **1,216 / 1,216** |
+| experts never routed | none | **none** (191/138/194/193/137/160/97/170) |
+| block 16 max, overflows | 203, 0 | **201, 0** |
+| cycles/token | 1,134,432 | **1,136,691** |
+
+**2,432 / 2,432 tokens exact across the two merged cartridges.**
+
 Coverage is the gate that matters and it is the one the survey cannot give by
 itself: 1,216/1,216 would read exactly the same if every trajectory stayed on
 expert 0, and 7 of the 8 header banks, bank number sets and table copies would
@@ -4283,10 +4298,10 @@ That is the same pipe `build.sh` had already had removed.
 
 * **No second emulator.** `ares` is still not installed here. Every number in
   this section is MAME 0.277.
-* **The 64-seed survey and the full gate were run on seed 1.** Seed 2 was run
-  through the same gate as a second cartridge; the loss table is two seeds
-  everywhere, but "1,216/1,216" is a per-cartridge claim and each cartridge
-  carries its own.
+* **The other three cells of the 2 x 2 were not surveyed at 64 seeds.** Both
+  merged cartridges were (2,432 / 2,432), and the two branches surveyed their
+  own shipping arms at 64, but `dense_pow2` / `dense_exact` / `n8_pow2` as
+  trained here were each verified at one seed token only, 19/19.
 * **The 2 x 2 is 2 seeds a cell, not more.** The interaction term is -0.0005
   against a seed spread of 0.0076, so what is established is "no interaction
   larger than the seed noise", not "the interaction is zero". Distinguishing

@@ -1,0 +1,11 @@
+runs/fac/n8_exact_s2.npz: 64 seeds x 20 positions = 1280 routed token-positions
+  expert 0     191   14.9%
+  expert 1     138   10.8%
+  expert 2     194   15.2%
+  expert 3     193   15.1%
+  expert 4     137   10.7%
+  expert 5     160   12.5%
+  expert 6      97    7.6%
+  expert 7     170   13.3%
+experts never routed: none
+distinct experts per seed: min 6  max 8  mean 7.42
