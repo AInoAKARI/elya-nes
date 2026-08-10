@@ -30,6 +30,25 @@ def main():
     iters = int(sys.argv[2]) if len(sys.argv) > 2 else 60
     meta = json.load(open(path.replace(".npz", ".json")))
     z = np.load(path)
+    # The forward pass this script builds comes from the ENVIRONMENT
+    # (model_nes reads NES_AV_SHIFT / NES_SM_NORM at import), and this tree now
+    # holds four arms that differ in exactly those.  Evaluating a power-of-two
+    # model through the exact-normalisation forward pass is a real, silent,
+    # plausible-looking number - and it is the number the whole "do they add?"
+    # question turns on.  So it is refused, not warned about.
+    want = [M.K_SHIFT, M.W2_SHIFT, M.AV_SHIFT, M.SM_SHIFT]
+    if "_shifts" in z and [int(v) for v in z["_shifts"]] != want:
+        raise SystemExit(
+            "%s was trained at shifts K/W2/AV/SM = %s; this evaluator is "
+            "configured for %s.  Set NES_AV_SHIFT etc to match."
+            % (path, [int(v) for v in z["_shifts"]], want))
+    if "_smnorm" in z:
+        got = "exact" if int(z["_smnorm"][0]) else "pow2"
+        if got != M.SM_NORM:
+            raise SystemExit(
+                "%s was trained with the %s normaliser; this evaluator is "
+                "configured for %s.  Set NES_SM_NORM=%s." % (path, got,
+                                                             M.SM_NORM, got))
     nexp, nexp_head = ((int(v) for v in z["_moe"]) if "_moe" in z else (1, 1))
     route = [int(v) for v in z["_route"]] if "_route" in z else None
     m = M.NesModel(tau=meta["tau"], mode=meta["mode"], quant=meta["quant"],

@@ -1,14 +1,14 @@
 rows                         1408
-nnz                          51299
-nnz_per_token                51299
+nnz                          245898
+nnz_per_token                [56129, 56310, 56332, 56170, 56200, 56300, 56247, 56288]
 weights_per_token            102400
-weights_on_cart              102400
-nexp                         1
-stream_banks                 7
-header_bytes                 5660
-banks                        7
-bank_crossings_per_token     6
-tokens                       [1, 21, 0, 0, 24, 60, 21, 60, 41, 34, 34, 62, 8, 0, 0, 24, 40, 15, 34, 34]
+weights_on_cart              446464
+nexp                         8
+stream_banks                 55
+header_bytes                 5684
+banks                        55
+bank_crossings_per_token     13
+tokens                       [1, 20, 19, 1, 20, 6, 14, 17, 4, 19, 14, 17, 4, 11, 46, 22, 49, 26, 12, 0]
 ntok                         19
-weights_npz                  (random init)
+weights_npz                  /tmp/smokeruns/smoke_n8.npz
 seed_tok                     1

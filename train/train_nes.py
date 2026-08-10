@@ -146,12 +146,20 @@ def main():
         # softmax and run against a sum <= 8 kernel loses half its attention
         # mass silently; this is the same class of trap as the shifts.
         z["_smtarget"] = np.array([M.SM_TARGET], dtype=np.int16)
+        # And WHICH normaliser spent that budget.  Both are trainable and both
+        # are buildable, so the tree now holds models that differ only in this;
+        # `_shifts` catches the pow2/exact pair only because the AV_SHIFT ladder
+        # happened to land on a different rung under each, which is luck, not a
+        # check.  1 = exact, 0 = power-of-two.
+        z["_smnorm"] = np.array([1 if M.SM_NORM == "exact" else 0],
+                                dtype=np.int16)
         np.savez(os.path.join(a.out, name + tag + ".npz"), **z)
         meta = dict(name=name + tag, vocab=a.vocab, tau=a.tau, mode=a.mode,
                     nexp=a.nexp, moe_head=int(a.moe_head), route=a.route,
                     route_seed=a.route_seed,
                     quant=a.quant, ctx=M.T, k_shift=M.K_SHIFT,
                     w2_shift=M.W2_SHIFT, av_shift=M.AV_SHIFT, sm_shift=M.SM_SHIFT,
+                    sm_target=M.SM_TARGET, sm_norm=M.SM_NORM,
                     steps=a.steps, batch=a.batch, lr=a.lr, seed=a.seed,
                     logit_scale=float(scale().detach()) if a.learn_scale
                                 else a.logit_scale,

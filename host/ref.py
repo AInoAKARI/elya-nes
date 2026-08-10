@@ -369,6 +369,16 @@ class Model:
                     "model through a narrow kernel clamps away the mass it "
                     "learned to spread and still generates plausible text.)"
                     % (path, got, SM_TARGET, got))
+        if "_smnorm" in z:
+            got = "exact" if int(z["_smnorm"][0]) else "pow2"
+            if got != SM_NORM:
+                raise SystemExit(
+                    "%s was trained with the %s softmax normaliser but this "
+                    "reference is configured for %s.  Set NES_SM_NORM=%s, or "
+                    "retrain.  (The two agree on the exp table and differ only "
+                    "in how the sum is spent, so the wrong one packs cleanly, "
+                    "verifies against ITSELF, and is simply a worse model.)"
+                    % (path, got, SM_NORM, got))
         m = cls.__new__(cls)
         m.emb = [[int(v) for v in row] for row in z["emb"]]
         m.pos = [[int(v) for v in row] for row in z["pos"]]
