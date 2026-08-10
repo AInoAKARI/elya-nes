@@ -3116,3 +3116,25 @@ the trained model settling 1.0% denser - 52,707 index bytes a token against
 "everything else", where the router and the header walk live, moved by 26.
 
 **4.36x the parameters, 1.0055x the time, 0.87x the loss.**
+
+## 14. Regressions: nothing the mixture touched broke anything it did not
+
+The absolute-bank sentinel is on **one** code path, so the dense cartridge and
+the long-context build run it too. Both were re-gated on this tree.
+
+| gate | result |
+| --- | ---: |
+| dense trained cartridge, 64-seed survey | **1,216 / 1,216 EXACT** |
+| dense trained cartridge, cycles/token | 1,117,063 (was 1,116,979, +84) |
+| random-init `./build.sh` cartridge | **19 / 19 EXACT** |
+| `T = 85` legacy attention path, random-init, 84 tokens | **84 / 84 EXACT** |
+| all eleven build targets at `T <= 21` | link |
+| all seven build targets at `T = 85` | link |
+| 4 identical experts vs dense, same tokens | identical, 19/19 |
+| trainer == host reference at N = 1, 4, 8 | EXACT at every layer |
+
+The `T = 85` run is the random-init model, so its cycle count is not
+comparable with the 1,697,916 recorded for the trained long-context
+cartridge - different weights, different nonzero count. What it establishes is
+that the legacy attention path still walks an absolute-sentinel header table
+correctly, which is the only thing the mixture change could have broken there.
