@@ -27,7 +27,16 @@ export NES_STREAM_BANKS
 if [ "$NES_STREAM_BANKS" -eq 7 ]; then CFG=rom/nn.cfg
 elif [ "$NES_STREAM_BANKS" -eq 9 ]; then CFG=rom/nn9.cfg
 else echo "no linker config for $NES_STREAM_BANKS stream banks"; exit 2; fi
-rm -f out/model/moe.inc out/model/moebanks.inc out/model/nnmoe.cfg
+# Every per-mixture artifact is removed before packing, not just the three the
+# assembler reads.  headers_e*.bin and routebank.bin are per-EXPERT and their
+# COUNT changes with N: packing an 8-expert model on top of a 16-expert one
+# leaves headers_e8..e15 on disk, describing a different model, in the
+# directory the ROM is assembled from.  Nothing downstream would say so - the
+# 8-expert build never opens them - but they would be committed alongside a
+# cartridge they do not belong to, which is the same class of trap as the
+# stale .nes that survived a failed link.
+rm -f out/model/moe.inc out/model/moebanks.inc out/model/nnmoe.cfg \
+      out/model/headers_e*.bin out/model/routebank.bin
 NES_WEIGHTS="$NPZ" NES_SEED_TOK="$SEED" \
     python3 host/ref.py out/model | tee out/model/pack_report.txt
 

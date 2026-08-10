@@ -14,7 +14,8 @@ NTOK=$((NES_T - 1))
 S=0
 PASS=0
 while [ "$S" -lt "$N" ]; do
-    rm -f out/model/moe.inc out/model/moebanks.inc out/model/nnmoe.cfg
+    rm -f out/model/moe.inc out/model/moebanks.inc out/model/nnmoe.cfg \
+           out/model/headers_e*.bin out/model/routebank.bin
     NES_WEIGHTS="$NPZ" NES_SEED_TOK="$S" python3 host/ref.py out/model "$NTOK" >/dev/null
     # A mixture build carries its own generated linker config and needs -DMOE.
     if [ -f out/model/moe.inc ]; then
