@@ -2967,9 +2967,19 @@ Stated as a negative, plainly: **the clustering router, which was the only
 construction here that tried to make experts specialise semantically, failed
 to beat a coin.**
 
-## 11. The trained 8-expert cartridge: cycles and exactness
+## 11. A trained 8-expert cartridge: cycles and exactness
 
-Built from the seed-1 mixture, gated end to end by `train/moe_gate.sh`.
+Built from a **47,500-step checkpoint** of the seed-1 mixture and gated end to
+end by `train/moe_gate.sh`. It is a checkpoint because the first attempt at
+the two 60,000-step runs wedged: after ~47,500 and ~49,000 steps both
+processes stopped making progress while still burning 100% CPU, for
+seventeen hours, on a GPU that a direct test showed was perfectly healthy
+(50 x 2048-square matmuls in 0.61 s). The trainer writes an exportable npz at
+every eval precisely for this, so the checkpoints were kept and the runs
+restarted from scratch; the restart reproduced the wedged run's loss at the
+same step to six digits (1.9792 at step 21,500, both times) and finished in
+38 minutes. The final cartridge is in section 13; this section is kept because
+its numbers were measured and because the wedge is worth recording.
 
 ```
 weights on the cartridge        446,464 ternary        (dense: 102,400)
