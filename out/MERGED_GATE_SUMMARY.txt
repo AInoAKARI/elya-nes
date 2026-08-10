@@ -1,0 +1,41 @@
+MERGED TREE - every gate, and where the raw output lives.
+
+instrument, on the final tree (scratch checkout, random-init dense build)
+  datasheet calibration          28/28, 0 mismatches
+  MMC5 primitives vs prior run   19/19
+  branch placement from ROM bytes OK
+  build.sh                       every ROM built, including bankprobe
+  random-init dense cartridge    19/19 EXACT, 1,109,683 cycles/token
+  trainer == host reference      EXACT at nexp = 1 and nexp = 4
+                                 (train/test_equiv.py, and 8 earlier)
+
+merged shipping cartridge  runs/fac/n8_exact_s1.npz   [out/MERGED_*.txt]
+  build variants link            24 / 24, 0 failures      MERGED_LINKS.txt
+  max|dW|                        0 over 446,464          MERGED_PACK.txt
+  ROM vs host, seed token 1      19/19 EXACT             MERGED_VERIFICATION.txt
+  64-seed survey                 1,216 / 1,216 EXACT     MERGED_SURVEY.txt
+  expert coverage                every expert routed     MERGED_COVERAGE.txt
+                                 224/170/158/185/122/140/115/166 of 1,280
+  block 16                       88,271 blocks, max 203, 0 over 127 signed,
+                                 0 over 255 biased       MERGED_BLOCKSIZE.txt
+  block 32                       max 378, 43 + 6,306 overflows - still refuted
+  cycle profile                  1,134,652 .. 1,198,607  MERGED_PROFILE.txt
+  cycles/token                   1,134,432 mean
+  router / bank switch in situ   11 / 73 cycles          MERGED_BANKPROF.txt
+
+merged seed-2 cartridge   runs/fac/n8_exact_s2.npz   [out/MERGED_S2_*.txt]
+  24/24 links, max|dW| = 0, 19/19, 1,216/1,216, every expert routed,
+  block 16 max 201 with 0 overflows, 1,136,691 cycles/token
+
+  2,432 / 2,432 tokens exact across the two merged cartridges.
+
+regressions and controls
+  both branches' shipping cartridges rebuilt here        MERGE_REGRESSION.txt
+  16 IDENTICAL experts == the dense cartridge, exactly   MERGE_IDENTICAL16.txt
+  the 2 x 2 loss table and the interaction               FACTORIAL.txt
+  the 2 x 2 cycle table and the interaction              MERGED_CYCLES_2x2.txt
+
+NOTE ON PATHS.  out/ATTN_SURVEY.txt, out/FINAL_SURVEY.txt and
+out/T85_FINAL_SURVEY.txt are the earlier branches' surveys and are left as
+they were written; the merged tree's surveys are MERGED_SURVEY.txt and
+MERGED_S2_SURVEY.txt.
