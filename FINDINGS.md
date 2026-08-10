@@ -3020,3 +3020,80 @@ So the honest summary of cost is:
 
 **0.6293 seconds per token against 0.6241.** Four and a third times the
 parameters for five milliseconds.
+
+---
+
+# The result
+
+## 12. Two seeds at 60,000 steps: 1.2202 / 1.2221 against 1.4133 / 1.4149
+
+Same recipe as the baseline in every respect - bpe64, `tau 0.75`,
+`AV_SHIFT 2`, `T = 20`, batch 192, `lr 3e-3`, 60,000 steps - with eight
+feed-forward experts and a 64-byte routing table.
+
+| arm | N | seed | val nats/token | **val nats/char** |
+| --- | ---: | ---: | ---: | ---: |
+| published baseline `final_av2` | 1 | 1 | 2.0546 | 1.4133 |
+| published baseline `t20_final_s2` | 1 | 2 | 2.0568 | 1.4149 |
+| dense control, this tree | 1 | 1 | 2.0381 | 1.4020 |
+| dense control, this tree | 1 | 2 | 2.0491 | 1.4096 |
+| **mixture** | **8** | **1** | **1.7738** | **1.2202** |
+| **mixture** | **8** | **2** | **1.7766** | **1.2221** |
+
+**The two groups do not overlap and are not close to overlapping.** The worst
+mixture seed (1.2221) beats the best dense seed on this tree (1.4020) by
+**0.180 nats/char**, which is **20 times** the 0.009 seed noise this project
+measured. Against the published pair the gap is 0.193.
+
+Re-evaluated on a single common estimator - 60 held-out batches from one fresh
+eval generator, applied identically to all four arms, because the trainer's
+own final eval draws from a generator that mid-run evals have advanced by a
+different amount in each run:
+
+| arm | **val nats/char, common estimator** |
+| --- | ---: |
+| dense s1 / s2 | 1.4098 / 1.4182 |
+| **mixture s1 / s2** | **1.2267 / 1.2311** |
+
+Same conclusion, same size: **-0.183**.
+
+For the comparison this journal exists to make:
+
+| change | cost per token | effect on val nats/char |
+| --- | ---: | ---: |
+| context 20 -> 85 | +52.0% cycles | **+0.019 WORSE** |
+| dense -> 8 experts | **+0.55% cycles** | **-0.182 BETTER** |
+
+Quadrupling the context made it worse for half again the time. Quadrupling the
+parameters made it 13% better for half a percent of the time. **Capacity was
+the ceiling, not context**, and that is now measured on both sides of the
+claim.
+
+## 13. The shipping mixture cartridge
+
+`train/moe_gate.sh runs/moe_n8bal60k_s1.npz`, all five stages:
+
+```
+image                            548,880 bytes, 66 banks   (dense: 106,512, 12)
+ternary weights on the cartridge 446,464                   (dense: 102,400)
+index bytes streamed per token    52,707                   (dense:  52,207)
+bank switches per token           12                       (dense:       7)
+
+max|dW| decoded back out of stream.bin      0  over 446,464 weights
+routebank.bin vs the trained routing table  64 / 64
+shared matrices decode identically from all 8 header tables
+ROM vs host reference, seed token 1         19 / 19 EXACT
+64-seed survey                              1,216 / 1,216 EXACT
+experts routed inside the survey            all 8, between 92 and 279 times
+
+cycles/token   1,092,685 (pos 0) .. 1,153,057 (pos 18), mean 1,123,138
+               0.6275 s/token at 1,789,772 Hz
+```
+
+**1,123,138 against 1,116,979: +6,159 cycles, +0.55%.** Of which the mixture
+machinery is 450 (measured on the identical-experts control) and the rest is
+the trained model settling 1.0% denser - 52,707 index bytes a token against
+52,207. The stage profile agrees: `gather_row` is up 7,630 cycles and
+"everything else", where the router and the header walk live, moved by 26.
+
+**4.36x the parameters, 1.0055x the time, 0.87x the loss.**
