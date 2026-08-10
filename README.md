@@ -12,36 +12,45 @@ seed token 'en'     -> 'enture. he was so happy and sai'
 seed token '!'      -> '! he was so happy. she was so '
 ```
 
-102,400 ternary weights (52,084 nonzero), 4-bit activations, a 64-symbol
+102,400 ternary weights (52,764 nonzero), 4-bit activations, a 64-symbol
 vocabulary, trained on TinyStories with quantisation-aware training so the
-forward pass the trainer sees is the forward pass the 6502 executes. 0.626
+forward pass the trainer sees is the forward pass the 6502 executes. 0.631
 seconds per token on a 1.79 MHz 2A03.
 
 Every number in `FINDINGS.md` is measured. Nothing here is estimated.
 
 ### The integer softmax was throwing away a quarter of its budget
 
-The quantised softmax normalises with a power-of-two shift: `kk` is the
-smallest shift with `S >> kk <= 8`, so the **realised** sum lands anywhere in
+The quantised softmax normalised with a power-of-two shift: `kk` is the
+smallest shift with `S >> kk <= 8`, so the **realised** sum landed anywhere in
 `(4, 8]` and a quarter of the time the softmax was running on half its
 budget. Replacing that with an exact normalisation - `p = min(e*8/S, 7)`,
-the same three-bit nibble, the same budget - is worth:
+the same three-bit nibble, the same budget - and re-laddering `AV_SHIFT`,
+which moves from 2 to 3 once the accumulator is bigger:
 
-| | shipped (power-of-two) | exact |
-|---|---|---|
-| val nats/char, seed 1 / seed 2 | 1.4133 / 1.4149 | **1.3957 / 1.3848** |
-| mean | 1.4141 | **1.3902** (-0.0239, 1.7%) |
-| mean cycles/token | 1,116,979 | 1,121,121 (**+0.37%**) |
-| ROM vs host | 1,216/1,216 (64 seeds) | **1,216/1,216 (64 seeds)** |
+| | shipped | exact | **exact + AV_SHIFT 3** |
+|---|---|---|---|
+| val nats/char, seed 1 / seed 2 | 1.4133 / 1.4149 | 1.3957 / 1.3848 | **1.3754 / 1.3779** |
+| mean | 1.4141 | 1.3902 | **1.3766** (**-0.0375, 2.65%**) |
+| mean cycles/token | 1,116,979 | 1,121,121 | **1,129,291** (+1.10%) |
+| ROM vs host | 1,216/1,216 (64 seeds) | 1,216/1,216 | **1,216/1,216 (64 seeds)** |
 
-60,000 steps, two seeds each, non-overlapping. The two arms differ in the
-normaliser and in nothing else.
+60,000 steps, two seeds each, ranges nowhere near overlapping. That is two
+thirds of what ternarising the weights costs, recovered from a normaliser and
+a shift. (Of the +1.10% cycles, +4,223 at the last position is the kernel;
+the rest is that this model trains to 557 more nonzero weights.)
 
 **Widening the probability nibble - which is what the previous experiment's
 diagnosis called for - is worth nothing.** Budgets of 8, 16 and 32 measure
 1.5279, 1.5335 and 1.5267 nats/char at matched steps: not monotone, and every
 gap smaller than the noisier arms' own seed spread. The leak was the shared
 exponent, not the bit width. See `FINDINGS.md`.
+
+**And fixing it did not make longer context help.** The `T = 85` minus
+`T = 20` penalty is +0.0472 nats/char under the old normaliser and +0.0487
+under the new one - the gap moved by 0.0015, inside the seed spread. The
+softmax was not what stood between the long-range head and paying for itself.
+The ceiling is still capacity.
 
 ### Is 29 characters of context the reason it cannot form a sentence? No.
 

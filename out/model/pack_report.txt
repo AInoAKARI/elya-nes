@@ -1,11 +1,11 @@
 rows                         1408
-nnz                          51299
+nnz                          52764
 weights                      102400
 stream_bytes                 57344
 header_bytes                 5656
 banks                        7
 bank_crossings_per_token     6
-tokens                       [1, 21, 0, 0, 24, 60, 21, 60, 41, 34, 34, 62, 8, 0, 0, 24, 40, 15, 34, 34]
+tokens                       [1, 4, 2, 0, 20, 18, 33, 0, 44, 18, 0, 8, 3, 58, 29, 24, 49, 26, 2, 0]
 ntok                         19
-weights_npz                  (random init)
+weights_npz                  runs/smxfinal_av3_exact_s1.npz
 seed_tok                     1
