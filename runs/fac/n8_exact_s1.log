@@ -4,3 +4,4 @@ n8_exact_s1                  step   500  fit 2.9330  val 2.9331  density 0.5504 
 n8_exact_s1                  step  1000  fit 2.7120  val 2.7075  density 0.5501  48s
 n8_exact_s1                  step  1500  fit 2.4860  val 2.4809  density 0.5498  72s
 n8_exact_s1                  step  2000  fit 2.3652  val 2.3821  density 0.5489  95s
+n8_exact_s1                  step  2500  fit 2.3052  val 2.3119  density 0.5482  119s

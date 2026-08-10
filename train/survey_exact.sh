@@ -23,8 +23,16 @@ while [ "$S" -lt "$N" ]; do
         CFG=rom/nn.cfg; MOEDEF=
     fi
     ca65 -I rom -I out/model -DNCTX=$NES_T -DSEEDTOK=$S $MOEDEF -o out/sv.o rom/nn.s
-    ld65 -C "$CFG" -o out/sv.nes out/sv.o 2>&1 \
-        | grep -v "CHARS" | grep -v "Segment 'POS' does not exist" || true
+    # ld65's status captured BEFORE the pipe, exactly as in build.sh: a survey
+    # is 64 links and a stale out/sv.nes surviving one of them would be
+    # measured 64 times and reported as evidence.  This is the same pipe that
+    # once hid a bank overflow.
+    if ! ld65 -C "$CFG" -o out/sv.nes out/sv.o > out/sv.ldlog 2>&1; then
+        echo "*** LINK FAILED at seed $S" >&2
+        cat out/sv.ldlog >&2
+        exit 1
+    fi
+    grep -v "CHARS" out/sv.ldlog | grep -v "Segment 'POS' does not exist" || true
     R=$(python3 tools/run_nn.py out/sv.nes out/model/expected.json 300 | grep "TOKENS MATCHING")
     echo "seed $S: $R"
     case "$R" in *EXACT*) PASS=$((PASS+1));; esac
