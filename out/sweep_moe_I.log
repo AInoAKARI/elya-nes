@@ -9,3 +9,48 @@ sw_n16bal_s1                 step  3000  fit 2.2202  val 2.2332  density 0.5483 
 sw_n16bal_s1                 step  3500  fit 2.1956  val 2.2129  density 0.5480  140s
 sw_n16bal_s1                 step  4000  fit 2.1651  val 2.1577  density 0.5476  159s
 sw_n16bal_s1                 step  4500  fit 2.1439  val 2.1494  density 0.5476  179s
+sw_n16bal_s1                 step  5000  fit 2.1283  val 2.1288  density 0.5472  198s
+sw_n16bal_s1                 step  5500  fit 2.1030  val 2.1044  density 0.5471  217s
+sw_n16bal_s1                 step  6000  fit 2.1028  val 2.0963  density 0.5471  237s
+sw_n16bal_s1                 step  6500  fit 2.0739  val 2.0891  density 0.5470  256s
+sw_n16bal_s1                 step  7000  fit 2.0836  val 2.0892  density 0.5465  275s
+sw_n16bal_s1                 step  7500  fit 2.0474  val 2.0636  density 0.5463  294s
+sw_n16bal_s1                 step  8000  fit 2.0407  val 2.0469  density 0.5463  314s
+sw_n16bal_s1                 step  8500  fit 2.0508  val 2.0471  density 0.5462  333s
+sw_n16bal_s1                 step  9000  fit 2.0209  val 2.0199  density 0.5461  352s
+sw_n16bal_s1                 step  9500  fit 2.0409  val 2.0496  density 0.5459  372s
+sw_n16bal_s1                 step 10000  fit 2.0211  val 2.0273  density 0.5459  391s
+sw_n16bal_s1                 step 10500  fit 2.0297  val 2.0179  density 0.5459  410s
+sw_n16bal_s1                 step 11000  fit 2.0127  val 2.0125  density 0.5459  430s
+sw_n16bal_s1                 step 11500  fit 1.9993  val 1.9910  density 0.5458  449s
+sw_n16bal_s1                 step 12000  fit 1.9292  val 1.9497  density 0.5459  468s
+FINAL sw_n16bal_s1             fit 1.9426  val 1.9438  (uniform 4.1589)  nnz 458357/839680 = 0.5459
+route mod   N=8  load 0.149 0.108 0.161 0.159 0.118 0.103 0.125 0.077  (max/min = 2.08)
+sw_n8mod_s1                  step     1  fit 7.5375  val 7.5580  density 0.5511  1s
+sw_n8mod_s1                  step   500  fit 2.9720  val 2.9721  density 0.5503  14s
+sw_n8mod_s1                  step  1000  fit 2.7622  val 2.7582  density 0.5500  27s
+sw_n8mod_s1                  step  1500  fit 2.5688  val 2.5625  density 0.5491  40s
+sw_n8mod_s1                  step  2000  fit 2.4215  val 2.4380  density 0.5488  54s
+sw_n8mod_s1                  step  2500  fit 2.3621  val 2.3713  density 0.5485  67s
+sw_n8mod_s1                  step  3000  fit 2.3080  val 2.3205  density 0.5472  81s
+sw_n8mod_s1                  step  3500  fit 2.2636  val 2.2771  density 0.5466  94s
+sw_n8mod_s1                  step  4000  fit 2.2502  val 2.2374  density 0.5461  107s
+sw_n8mod_s1                  step  4500  fit 2.2318  val 2.2331  density 0.5453  120s
+sw_n8mod_s1                  step  5000  fit 2.2055  val 2.2042  density 0.5459  133s
+sw_n8mod_s1                  step  5500  fit 2.1950  val 2.2028  density 0.5455  146s
+sw_n8mod_s1                  step  6000  fit 2.1895  val 2.1803  density 0.5446  159s
+sw_n8mod_s1                  step  6500  fit 2.1583  val 2.1725  density 0.5443  172s
+sw_n8mod_s1                  step  7000  fit 2.1624  val 2.1734  density 0.5439  186s
+sw_n8mod_s1                  step  7500  fit 2.1376  val 2.1546  density 0.5439  199s
+sw_n8mod_s1                  step  8000  fit 2.1245  val 2.1283  density 0.5436  212s
+sw_n8mod_s1                  step  8500  fit 2.1279  val 2.1321  density 0.5440  225s
+sw_n8mod_s1                  step  9000  fit 2.1171  val 2.1162  density 0.5436  238s
+sw_n8mod_s1                  step  9500  fit 2.1189  val 2.1253  density 0.5432  251s
+sw_n8mod_s1                  step 10000  fit 2.1064  val 2.1114  density 0.5431  264s
+sw_n8mod_s1                  step 10500  fit 2.1050  val 2.0954  density 0.5431  277s
+sw_n8mod_s1                  step 11000  fit 2.0869  val 2.0828  density 0.5429  290s
+sw_n8mod_s1                  step 11500  fit 2.0844  val 2.0748  density 0.5429  304s
+sw_n8mod_s1                  step 12000  fit 2.0004  val 2.0152  density 0.5429  317s
+FINAL sw_n8mod_s1              fit 2.0069  val 2.0096  (uniform 4.1589)  nnz 242383/446464 = 0.5429
+route bal   N=16  load 0.063 0.063 0.063 0.062 0.062 0.062 0.063 0.062 0.063 0.062 0.062 0.064 0.062 0.063 0.062 0.062  (max/min = 1.03)
+moe_n16bal60k_s1             step     1  fit 7.7412  val 7.7503  density 0.5517  1s

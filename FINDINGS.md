@@ -2817,9 +2817,10 @@ routing table move. `train/moe_table.py`.
 | mixture | 2 | bal | 2.1723 | **1.4943** | 151,552 |
 | mixture | 4 | bal | 2.0912 | **1.4385** | 249,856 |
 | mixture | 4 | clus | 2.0865 | **1.4353** | 249,856 |
-| **mixture** | **8** | **bal** | **2.0046** | **1.3789** | **446,464** |
+| mixture | 8 | bal | 2.0046 | **1.3789** | 446,464 |
+| **mixture** | **16** | **bal** | **1.9438** | **1.3371** | **839,680** |
 
-Monotone in N, and the gaps are 4 to 6 times the 0.009 nats/char seed noise
+Monotone in N all the way to the cartridge ceiling, and the gaps are 4 to 6 times the 0.009 nats/char seed noise
 this project measured earlier. **The 8-expert mixture at 12,000 steps
 (1.3789) already beats the dense model at 60,000 steps (1.4133/1.4149)** -
 one fifth of the training, and 0.034 nats/char better than the number the
@@ -2951,8 +2952,16 @@ respect and identical in cartridge cost (11 cycles):
 | `rand` | a seeded random assignment | **3.09** | **1.4374** |
 | `bal` | greedy frequency balance | 1.00 | **1.4385** |
 
-**The spread is 0.0032 nats/char across all three, against a measured seed
-noise of 0.009.** Deliberately clustering tokens by what they predict is worth
+And at N = 8, where an unbalanced router sends 2.08x as much corpus to its
+busiest expert as to its lightest:
+
+| route | load max/min | **val nats/char** |
+| --- | ---: | ---: |
+| `bal` | 1.03 | **1.3789** |
+| `mod` | 2.08 | **1.3823** |
+
+**The spread is 0.0032 nats/char across the three N = 4 routers and 0.0034
+between the two N = 8 routers, against a measured seed noise of 0.009.** Deliberately clustering tokens by what they predict is worth
 nothing over load balancing, and a *random* assignment that sends 27% of the
 corpus to one expert and 11% to another is worth nothing either - if anything
 it edges the balanced one, which at this spread means nothing.
