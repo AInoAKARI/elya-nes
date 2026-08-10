@@ -1,14 +1,14 @@
 rows                         1408
-nnz                          441016
-nnz_per_token                [52788, 52886, 53072, 52811, 53034, 52931, 53124, 53001, 52968, 52878, 52903, 52985, 52823, 53119, 53073, 52925]
+nnz                          232339
+nnz_per_token                [52744, 52460, 52679, 52701, 52788, 52698, 52854, 52730]
 weights_per_token            102400
-weights_on_cart              839680
-nexp                         16
-stream_banks                 102
+weights_on_cart              446464
+nexp                         8
+stream_banks                 54
 header_bytes                 5680
-banks                        102
+banks                        54
 bank_crossings_per_token     12
-tokens                       [1, 20, 19, 19, 52, 5, 11, 24, 37, 13, 3, 40, 15, 60, 10, 45, 36, 43, 48, 21]
+tokens                       [1, 20, 41, 36, 43, 18, 38, 14, 26, 51, 15, 15, 24, 27, 38, 36, 18, 0, 22, 37]
 ntok                         19
-weights_npz                  runs/moe_n16bal60k_s1.npz
+weights_npz                  runs/moe_n8bal60k_s1.npz
 seed_tok                     1

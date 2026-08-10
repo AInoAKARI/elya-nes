@@ -3176,3 +3176,62 @@ result; it is reported as one.
 
 Loss falls by 17% from N = 1 to N = 16. Cycles rise by 0.76%. Every row is
 1,216/1,216 exact against the host reference.
+
+## 16. The per-expert output head path, exercised
+
+`nexp_head > 1` moves the output head out of the shared region and into each
+expert's banks. It was implemented alongside the feed-forward experts and
+would otherwise have shipped untested, so it was exercised with **eight
+identical copies of the trained head**, which must be arithmetically neutral:
+
+```
+stream banks                61   (shared head: 54)
+weights on the cartridge    475,136
+bank switches per token     12   (unchanged - the head chunk moved region,
+                                  it did not add a boundary)
+max|dW|                     0    over 475,136 weights
+ROM vs host, seed token 1   19 / 19 EXACT
+cycles/token                1,123,138   - the same integer as the shared-head
+                                          build, at every position
+tokens                      identical to the shared-head cartridge
+```
+
+Not trained as an arm - the head is 4,096 of 102,400 weights and the
+feed-forward blocks are 49,152, so it was never where the capacity was. The
+path is exercised, not evaluated.
+
+---
+
+# What could not be done
+
+* **No second emulator.** `ares` is still not installed here, so every
+  mixture measurement is MAME-only, as the two journals before this one were.
+  The `.sav` result block was verified through MAME's memory dump.
+* **N = 16 is one seed.** The 8-expert result is two seeds and the groups do
+  not overlap; the 16-expert result is a single 60,000-step run and is
+  reported as a data point, not as a two-seed claim.
+* **No learned router was trained.** It was argued out - any router running
+  before the first layer is a function of `(curtok, curpos)`, which the table
+  can express exactly, and the three tables that were trained land within
+  0.0032 nats/char of each other - but "argued out" is not "measured", and a
+  learned projection with an argmax remains untested here.
+* **No `(curtok, curpos)` router was trained either**, for the same reason.
+* **No mid-token router.** Routing layer 2's feed-forward on layer 1's output
+  is the one routing idea the "function of `(curtok, curpos)`" argument does
+  not cover, and it is not attempted.
+* **The bank-aligned chunk layout was not optimised.** Every region chunk
+  starts at a bank boundary, so part of a bank is wasted per chunk - six of
+  the 24 expert banks at N = 4. The alternative is a sentinel carrying a
+  resume offset; it was not built, because there are 116 spare banks and one
+  fewer thing in the sentinel is worth more than six banks.
+* **The first pair of 60,000-step runs wedged** at ~47,500 and ~49,000 steps
+  and burned 100% CPU for seventeen hours without advancing, on a GPU that
+  tested healthy. They were killed and restarted; the restart reproduced the
+  loss at matched steps to six digits. No cause was established. Training wall
+  times in this journal are not comparable with each other for that reason -
+  the box shared its GPU with other work throughout.
+* **The published baselines are not from this tree.** 1.4133 and 1.4149 were
+  produced by two different implementations of the same forward pass, and this
+  tree's dense model measures 1.4020 / 1.4096 on the same recipe. Both
+  comparisons are given; the mixture beats both by more than twenty times the
+  seed noise, so nothing turns on which is used.
