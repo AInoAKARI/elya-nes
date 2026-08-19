@@ -1,5 +1,7 @@
 # elya-nes
 
+> **Part of [Transformers on Retro Game Consoles](https://hackaday.io/project/206401-transformers-on-retro-game-consoles)** on Hackaday.io — build logs, corrections, and the sibling NES / SNES / Genesis / N64 / Game Boy Color ports.
+
 A cycle-exact measurement instrument for the NES/Famicom 2A03, and a ternary
 transformer forward pass built on top of it, verified bit-exact against a host
 reference over 19 generated tokens - now with **trained weights**, so it says
