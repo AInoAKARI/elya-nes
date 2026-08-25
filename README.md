@@ -182,6 +182,33 @@ python3 tools/run_profile.py out/nnprof.nes    # per-stage cycle profile
 python3 host/blocksize.py                      # block-size saturation
 ```
 
+### Reproduce the dense benchmark in Mesen 2
+
+Mesen 2.1.1's headless Lua runner provides an independent measurement of the
+same `$0300` BEGIN/END writes used above. The public 96 KiB MMC5 image needs a
+container-only compatibility transform: Mesen leaves its reset vector unmapped
+because 12 PRG banks are not a power of two. `mesen_pad_mmc5.py` expands the
+image to 128 KiB, leaves banks 0--11 byte-for-byte unchanged, and mirrors the
+fixed code bank at bank 15. No measured code or data changes.
+
+```sh
+NES_AV_SHIFT=2 NES_SM_NORM=pow2 \
+  train/build_trained.sh runs/fac/dense_pow2_s1.npz 1
+python3 tools/mesen_pad_mmc5.py out/nn.nes out/nn-mesen.nes
+MESEN_BIN=/path/to/Mesen python3 tools/mesen_nes_bench.py \
+  out/nn-mesen.nes out/model/expected.json --source-rom out/nn.nes \
+  --output results/nes_mesen_2.1.1_dense_pow2.json
+```
+
+The runner creates an empty portable `settings.json` only when one does not
+already exist (to bypass Mesen's first-run GUI), enables local Lua file output
+for that process, and does not enable network access. The committed result
+contains all raw callback timestamps: 19/19 host-reference tokens match,
+21,227,718 total CPU cycles, mean **1,117,248 cycles/token**, and 254,732,616
+NES master clocks. Every master-clock delta is exactly 12 times its CPU-cycle
+delta, and the mean differs from the published MAME 0.277 value by **0 cycles
+(0.0%)**.
+
 ### Train a model and put it on the cartridge
 
 ```sh

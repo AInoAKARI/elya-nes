@@ -1,0 +1,716 @@
+{
+  "provenance": {
+    "source_commit": "2de04401cd7de09d9c44712d3eb4b2dd7190518c",
+    "emulator": "Mesen",
+    "emulator_release": "2.1.1",
+    "mesen_executable": "C:\\Users\\PC\\temp\\mesen-2.1.1-bounty\\Mesen.exe",
+    "mesen_executable_sha256": "d2eb03c2590c648bf329f127ebcfefd70130e7690a9e2ccdba8616faea1fe96b",
+    "official_windows_zip_sha256": "23ccc2bc060b663c68dad3a8c5d6da7d23a50f872d04f135bafa2b04ff7d5cbe",
+    "rom": "out\\nn-mesen.nes",
+    "rom_sha256": "2a47a477dacd908a80cc523e8f5dd1dad9e8871f620fe75bb142c387d31c4d44",
+    "source_rom": "out\\nn.nes",
+    "source_rom_sha256": "0a0afcb4068ecd21adc24f861155c255138e59d74198840d7981d097f3369bc5",
+    "rom_transform": "96 KiB MMC5 PRG padded to 128 KiB; fixed bank 11 mirrored at bank 15 for Mesen reset mapping",
+    "expected": "out\\model\\expected.json",
+    "checkpoint": "runs/fac/dense_pow2_s1.npz"
+  },
+  "validation": {
+    "status": "OK",
+    "expected_tokens": [
+      20,
+      19,
+      40,
+      18,
+      19,
+      14,
+      17,
+      33,
+      19,
+      14,
+      26,
+      1,
+      4,
+      19,
+      19,
+      19,
+      52,
+      26,
+      5
+    ],
+    "observed_tokens": [
+      20,
+      19,
+      40,
+      18,
+      19,
+      14,
+      17,
+      33,
+      19,
+      14,
+      26,
+      1,
+      4,
+      19,
+      19,
+      19,
+      52,
+      26,
+      5
+    ],
+    "matching_tokens": 19,
+    "token_count": 19,
+    "byte_identical": true
+  },
+  "measurement": {
+    "marker_address": "0x0300",
+    "cpu_cycles": [
+      1085835,
+      1089993,
+      1093262,
+      1096755,
+      1099496,
+      1104046,
+      1107009,
+      1109736,
+      1113509,
+      1116908,
+      1120652,
+      1124995,
+      1126877,
+      1130132,
+      1134537,
+      1137734,
+      1141475,
+      1145740,
+      1149027
+    ],
+    "master_clocks": [
+      13030020,
+      13079916,
+      13119144,
+      13161060,
+      13193952,
+      13248552,
+      13284108,
+      13316832,
+      13362108,
+      13402896,
+      13447824,
+      13499940,
+      13522524,
+      13561584,
+      13614444,
+      13652808,
+      13697700,
+      13748880,
+      13788324
+    ],
+    "total_cpu_cycles": 21227718,
+    "total_master_clocks": 254732616,
+    "mean_cpu_cycles": 1117248,
+    "master_clock_ratio_is_12": true,
+    "mame_published_mean_cpu_cycles": 1117248,
+    "delta_vs_mame_cycles": 0,
+    "delta_vs_mame_percent": 0.0,
+    "windows": [
+      {
+        "position": 0,
+        "cpu_cycles": 1085835,
+        "master_clocks": 13030020,
+        "master_clocks_div_12": 1085835.0,
+        "mesen_master_clock_delta": 1085835,
+        "begin": {
+          "marker": 1,
+          "cpu_cycle": 70078,
+          "master_clock": 70078,
+          "ppu_master_clock": 840952
+        },
+        "end": {
+          "marker": 2,
+          "cpu_cycle": 1155913,
+          "master_clock": 1155913,
+          "ppu_master_clock": 13870972
+        }
+      },
+      {
+        "position": 1,
+        "cpu_cycles": 1089993,
+        "master_clocks": 13079916,
+        "master_clocks_div_12": 1089993.0,
+        "mesen_master_clock_delta": 1089993,
+        "begin": {
+          "marker": 1,
+          "cpu_cycle": 1155943,
+          "master_clock": 1155943,
+          "ppu_master_clock": 13871332
+        },
+        "end": {
+          "marker": 2,
+          "cpu_cycle": 2245936,
+          "master_clock": 2245936,
+          "ppu_master_clock": 26951248
+        }
+      },
+      {
+        "position": 2,
+        "cpu_cycles": 1093262,
+        "master_clocks": 13119144,
+        "master_clocks_div_12": 1093262.0,
+        "mesen_master_clock_delta": 1093262,
+        "begin": {
+          "marker": 1,
+          "cpu_cycle": 2245966,
+          "master_clock": 2245966,
+          "ppu_master_clock": 26951608
+        },
+        "end": {
+          "marker": 2,
+          "cpu_cycle": 3339228,
+          "master_clock": 3339228,
+          "ppu_master_clock": 40070752
+        }
+      },
+      {
+        "position": 3,
+        "cpu_cycles": 1096755,
+        "master_clocks": 13161060,
+        "master_clocks_div_12": 1096755.0,
+        "mesen_master_clock_delta": 1096755,
+        "begin": {
+          "marker": 1,
+          "cpu_cycle": 3339258,
+          "master_clock": 3339258,
+          "ppu_master_clock": 40071112
+        },
+        "end": {
+          "marker": 2,
+          "cpu_cycle": 4436013,
+          "master_clock": 4436013,
+          "ppu_master_clock": 53232172
+        }
+      },
+      {
+        "position": 4,
+        "cpu_cycles": 1099496,
+        "master_clocks": 13193952,
+        "master_clocks_div_12": 1099496.0,
+        "mesen_master_clock_delta": 1099496,
+        "begin": {
+          "marker": 1,
+          "cpu_cycle": 4436043,
+          "master_clock": 4436043,
+          "ppu_master_clock": 53232532
+        },
+        "end": {
+          "marker": 2,
+          "cpu_cycle": 5535539,
+          "master_clock": 5535539,
+          "ppu_master_clock": 66426484
+        }
+      },
+      {
+        "position": 5,
+        "cpu_cycles": 1104046,
+        "master_clocks": 13248552,
+        "master_clocks_div_12": 1104046.0,
+        "mesen_master_clock_delta": 1104046,
+        "begin": {
+          "marker": 1,
+          "cpu_cycle": 5535569,
+          "master_clock": 5535569,
+          "ppu_master_clock": 66426844
+        },
+        "end": {
+          "marker": 2,
+          "cpu_cycle": 6639615,
+          "master_clock": 6639615,
+          "ppu_master_clock": 79675396
+        }
+      },
+      {
+        "position": 6,
+        "cpu_cycles": 1107009,
+        "master_clocks": 13284108,
+        "master_clocks_div_12": 1107009.0,
+        "mesen_master_clock_delta": 1107009,
+        "begin": {
+          "marker": 1,
+          "cpu_cycle": 6639645,
+          "master_clock": 6639645,
+          "ppu_master_clock": 79675756
+        },
+        "end": {
+          "marker": 2,
+          "cpu_cycle": 7746654,
+          "master_clock": 7746654,
+          "ppu_master_clock": 92959864
+        }
+      },
+      {
+        "position": 7,
+        "cpu_cycles": 1109736,
+        "master_clocks": 13316832,
+        "master_clocks_div_12": 1109736.0,
+        "mesen_master_clock_delta": 1109736,
+        "begin": {
+          "marker": 1,
+          "cpu_cycle": 7746684,
+          "master_clock": 7746684,
+          "ppu_master_clock": 92960224
+        },
+        "end": {
+          "marker": 2,
+          "cpu_cycle": 8856420,
+          "master_clock": 8856420,
+          "ppu_master_clock": 106277056
+        }
+      },
+      {
+        "position": 8,
+        "cpu_cycles": 1113509,
+        "master_clocks": 13362108,
+        "master_clocks_div_12": 1113509.0,
+        "mesen_master_clock_delta": 1113509,
+        "begin": {
+          "marker": 1,
+          "cpu_cycle": 8856450,
+          "master_clock": 8856450,
+          "ppu_master_clock": 106277416
+        },
+        "end": {
+          "marker": 2,
+          "cpu_cycle": 9969959,
+          "master_clock": 9969959,
+          "ppu_master_clock": 119639524
+        }
+      },
+      {
+        "position": 9,
+        "cpu_cycles": 1116908,
+        "master_clocks": 13402896,
+        "master_clocks_div_12": 1116908.0,
+        "mesen_master_clock_delta": 1116908,
+        "begin": {
+          "marker": 1,
+          "cpu_cycle": 9969989,
+          "master_clock": 9969989,
+          "ppu_master_clock": 119639884
+        },
+        "end": {
+          "marker": 2,
+          "cpu_cycle": 11086897,
+          "master_clock": 11086897,
+          "ppu_master_clock": 133042780
+        }
+      },
+      {
+        "position": 10,
+        "cpu_cycles": 1120652,
+        "master_clocks": 13447824,
+        "master_clocks_div_12": 1120652.0,
+        "mesen_master_clock_delta": 1120652,
+        "begin": {
+          "marker": 1,
+          "cpu_cycle": 11086927,
+          "master_clock": 11086927,
+          "ppu_master_clock": 133043140
+        },
+        "end": {
+          "marker": 2,
+          "cpu_cycle": 12207579,
+          "master_clock": 12207579,
+          "ppu_master_clock": 146490964
+        }
+      },
+      {
+        "position": 11,
+        "cpu_cycles": 1124995,
+        "master_clocks": 13499940,
+        "master_clocks_div_12": 1124995.0,
+        "mesen_master_clock_delta": 1124995,
+        "begin": {
+          "marker": 1,
+          "cpu_cycle": 12207609,
+          "master_clock": 12207609,
+          "ppu_master_clock": 146491324
+        },
+        "end": {
+          "marker": 2,
+          "cpu_cycle": 13332604,
+          "master_clock": 13332604,
+          "ppu_master_clock": 159991264
+        }
+      },
+      {
+        "position": 12,
+        "cpu_cycles": 1126877,
+        "master_clocks": 13522524,
+        "master_clocks_div_12": 1126877.0,
+        "mesen_master_clock_delta": 1126877,
+        "begin": {
+          "marker": 1,
+          "cpu_cycle": 13332634,
+          "master_clock": 13332634,
+          "ppu_master_clock": 159991624
+        },
+        "end": {
+          "marker": 2,
+          "cpu_cycle": 14459511,
+          "master_clock": 14459511,
+          "ppu_master_clock": 173514148
+        }
+      },
+      {
+        "position": 13,
+        "cpu_cycles": 1130132,
+        "master_clocks": 13561584,
+        "master_clocks_div_12": 1130132.0,
+        "mesen_master_clock_delta": 1130132,
+        "begin": {
+          "marker": 1,
+          "cpu_cycle": 14459541,
+          "master_clock": 14459541,
+          "ppu_master_clock": 173514508
+        },
+        "end": {
+          "marker": 2,
+          "cpu_cycle": 15589673,
+          "master_clock": 15589673,
+          "ppu_master_clock": 187076092
+        }
+      },
+      {
+        "position": 14,
+        "cpu_cycles": 1134537,
+        "master_clocks": 13614444,
+        "master_clocks_div_12": 1134537.0,
+        "mesen_master_clock_delta": 1134537,
+        "begin": {
+          "marker": 1,
+          "cpu_cycle": 15589703,
+          "master_clock": 15589703,
+          "ppu_master_clock": 187076452
+        },
+        "end": {
+          "marker": 2,
+          "cpu_cycle": 16724240,
+          "master_clock": 16724240,
+          "ppu_master_clock": 200690896
+        }
+      },
+      {
+        "position": 15,
+        "cpu_cycles": 1137734,
+        "master_clocks": 13652808,
+        "master_clocks_div_12": 1137734.0,
+        "mesen_master_clock_delta": 1137734,
+        "begin": {
+          "marker": 1,
+          "cpu_cycle": 16724270,
+          "master_clock": 16724270,
+          "ppu_master_clock": 200691256
+        },
+        "end": {
+          "marker": 2,
+          "cpu_cycle": 17862004,
+          "master_clock": 17862004,
+          "ppu_master_clock": 214344064
+        }
+      },
+      {
+        "position": 16,
+        "cpu_cycles": 1141475,
+        "master_clocks": 13697700,
+        "master_clocks_div_12": 1141475.0,
+        "mesen_master_clock_delta": 1141475,
+        "begin": {
+          "marker": 1,
+          "cpu_cycle": 17862034,
+          "master_clock": 17862034,
+          "ppu_master_clock": 214344424
+        },
+        "end": {
+          "marker": 2,
+          "cpu_cycle": 19003509,
+          "master_clock": 19003509,
+          "ppu_master_clock": 228042124
+        }
+      },
+      {
+        "position": 17,
+        "cpu_cycles": 1145740,
+        "master_clocks": 13748880,
+        "master_clocks_div_12": 1145740.0,
+        "mesen_master_clock_delta": 1145740,
+        "begin": {
+          "marker": 1,
+          "cpu_cycle": 19003539,
+          "master_clock": 19003539,
+          "ppu_master_clock": 228042484
+        },
+        "end": {
+          "marker": 2,
+          "cpu_cycle": 20149279,
+          "master_clock": 20149279,
+          "ppu_master_clock": 241791364
+        }
+      },
+      {
+        "position": 18,
+        "cpu_cycles": 1149027,
+        "master_clocks": 13788324,
+        "master_clocks_div_12": 1149027.0,
+        "mesen_master_clock_delta": 1149027,
+        "begin": {
+          "marker": 1,
+          "cpu_cycle": 20149309,
+          "master_clock": 20149309,
+          "ppu_master_clock": 241791724
+        },
+        "end": {
+          "marker": 2,
+          "cpu_cycle": 21298336,
+          "master_clock": 21298336,
+          "ppu_master_clock": 255580048
+        }
+      }
+    ],
+    "raw_events": [
+      {
+        "marker": 1,
+        "cpu_cycle": 70078,
+        "master_clock": 70078,
+        "ppu_master_clock": 840952
+      },
+      {
+        "marker": 2,
+        "cpu_cycle": 1155913,
+        "master_clock": 1155913,
+        "ppu_master_clock": 13870972
+      },
+      {
+        "marker": 1,
+        "cpu_cycle": 1155943,
+        "master_clock": 1155943,
+        "ppu_master_clock": 13871332
+      },
+      {
+        "marker": 2,
+        "cpu_cycle": 2245936,
+        "master_clock": 2245936,
+        "ppu_master_clock": 26951248
+      },
+      {
+        "marker": 1,
+        "cpu_cycle": 2245966,
+        "master_clock": 2245966,
+        "ppu_master_clock": 26951608
+      },
+      {
+        "marker": 2,
+        "cpu_cycle": 3339228,
+        "master_clock": 3339228,
+        "ppu_master_clock": 40070752
+      },
+      {
+        "marker": 1,
+        "cpu_cycle": 3339258,
+        "master_clock": 3339258,
+        "ppu_master_clock": 40071112
+      },
+      {
+        "marker": 2,
+        "cpu_cycle": 4436013,
+        "master_clock": 4436013,
+        "ppu_master_clock": 53232172
+      },
+      {
+        "marker": 1,
+        "cpu_cycle": 4436043,
+        "master_clock": 4436043,
+        "ppu_master_clock": 53232532
+      },
+      {
+        "marker": 2,
+        "cpu_cycle": 5535539,
+        "master_clock": 5535539,
+        "ppu_master_clock": 66426484
+      },
+      {
+        "marker": 1,
+        "cpu_cycle": 5535569,
+        "master_clock": 5535569,
+        "ppu_master_clock": 66426844
+      },
+      {
+        "marker": 2,
+        "cpu_cycle": 6639615,
+        "master_clock": 6639615,
+        "ppu_master_clock": 79675396
+      },
+      {
+        "marker": 1,
+        "cpu_cycle": 6639645,
+        "master_clock": 6639645,
+        "ppu_master_clock": 79675756
+      },
+      {
+        "marker": 2,
+        "cpu_cycle": 7746654,
+        "master_clock": 7746654,
+        "ppu_master_clock": 92959864
+      },
+      {
+        "marker": 1,
+        "cpu_cycle": 7746684,
+        "master_clock": 7746684,
+        "ppu_master_clock": 92960224
+      },
+      {
+        "marker": 2,
+        "cpu_cycle": 8856420,
+        "master_clock": 8856420,
+        "ppu_master_clock": 106277056
+      },
+      {
+        "marker": 1,
+        "cpu_cycle": 8856450,
+        "master_clock": 8856450,
+        "ppu_master_clock": 106277416
+      },
+      {
+        "marker": 2,
+        "cpu_cycle": 9969959,
+        "master_clock": 9969959,
+        "ppu_master_clock": 119639524
+      },
+      {
+        "marker": 1,
+        "cpu_cycle": 9969989,
+        "master_clock": 9969989,
+        "ppu_master_clock": 119639884
+      },
+      {
+        "marker": 2,
+        "cpu_cycle": 11086897,
+        "master_clock": 11086897,
+        "ppu_master_clock": 133042780
+      },
+      {
+        "marker": 1,
+        "cpu_cycle": 11086927,
+        "master_clock": 11086927,
+        "ppu_master_clock": 133043140
+      },
+      {
+        "marker": 2,
+        "cpu_cycle": 12207579,
+        "master_clock": 12207579,
+        "ppu_master_clock": 146490964
+      },
+      {
+        "marker": 1,
+        "cpu_cycle": 12207609,
+        "master_clock": 12207609,
+        "ppu_master_clock": 146491324
+      },
+      {
+        "marker": 2,
+        "cpu_cycle": 13332604,
+        "master_clock": 13332604,
+        "ppu_master_clock": 159991264
+      },
+      {
+        "marker": 1,
+        "cpu_cycle": 13332634,
+        "master_clock": 13332634,
+        "ppu_master_clock": 159991624
+      },
+      {
+        "marker": 2,
+        "cpu_cycle": 14459511,
+        "master_clock": 14459511,
+        "ppu_master_clock": 173514148
+      },
+      {
+        "marker": 1,
+        "cpu_cycle": 14459541,
+        "master_clock": 14459541,
+        "ppu_master_clock": 173514508
+      },
+      {
+        "marker": 2,
+        "cpu_cycle": 15589673,
+        "master_clock": 15589673,
+        "ppu_master_clock": 187076092
+      },
+      {
+        "marker": 1,
+        "cpu_cycle": 15589703,
+        "master_clock": 15589703,
+        "ppu_master_clock": 187076452
+      },
+      {
+        "marker": 2,
+        "cpu_cycle": 16724240,
+        "master_clock": 16724240,
+        "ppu_master_clock": 200690896
+      },
+      {
+        "marker": 1,
+        "cpu_cycle": 16724270,
+        "master_clock": 16724270,
+        "ppu_master_clock": 200691256
+      },
+      {
+        "marker": 2,
+        "cpu_cycle": 17862004,
+        "master_clock": 17862004,
+        "ppu_master_clock": 214344064
+      },
+      {
+        "marker": 1,
+        "cpu_cycle": 17862034,
+        "master_clock": 17862034,
+        "ppu_master_clock": 214344424
+      },
+      {
+        "marker": 2,
+        "cpu_cycle": 19003509,
+        "master_clock": 19003509,
+        "ppu_master_clock": 228042124
+      },
+      {
+        "marker": 1,
+        "cpu_cycle": 19003539,
+        "master_clock": 19003539,
+        "ppu_master_clock": 228042484
+      },
+      {
+        "marker": 2,
+        "cpu_cycle": 20149279,
+        "master_clock": 20149279,
+        "ppu_master_clock": 241791364
+      },
+      {
+        "marker": 1,
+        "cpu_cycle": 20149309,
+        "master_clock": 20149309,
+        "ppu_master_clock": 241791724
+      },
+      {
+        "marker": 2,
+        "cpu_cycle": 21298336,
+        "master_clock": 21298336,
+        "ppu_master_clock": 255580048
+      },
+      {
+        "marker": 255,
+        "cpu_cycle": 21298750,
+        "master_clock": 21298750,
+        "ppu_master_clock": 255585016
+      }
+    ]
+  }
+}
