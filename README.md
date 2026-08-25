@@ -182,6 +182,9 @@ python3 tools/run_profile.py out/nnprof.nes    # per-stage cycle profile
 python3 host/blocksize.py                      # block-size saturation
 ```
 
+The harness finds `mame` on `PATH` on Linux, macOS, and Windows. To use a
+specific executable, set `MAME_BIN` to its full path before running a tool.
+
 ### Train a model and put it on the cartridge
 
 ```sh

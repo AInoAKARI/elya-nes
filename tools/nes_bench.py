@@ -24,11 +24,27 @@ the Genesis version of this work:
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 
-MAME = "/usr/games/mame"
+
+def find_mame():
+    """Return the configured MAME executable, with portable defaults."""
+    configured = os.environ.get("MAME_BIN")
+    if configured:
+        return configured
+
+    for candidate in ("mame", "mame.exe"):
+        resolved = shutil.which(candidate)
+        if resolved:
+            return resolved
+
+    return "/usr/games/mame"
+
+
+MAME = find_mame()
 
 # Candidate CPU clocks tested by derive_clock().
 CLOCK_CANDIDATES = {
